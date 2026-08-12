@@ -1,0 +1,227 @@
+:root {
+  --bg: #0f1115;
+  --card-bg: #1a1d24;
+  --card-border: #2a2e38;
+  --accent: #e8b64c;
+  --accent-2: #4c9be8;
+  --text: #e8e8ec;
+  --text-dim: #9096a3;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+header {
+  padding: 32px 24px 20px;
+  text-align: center;
+  border-bottom: 1px solid var(--card-border);
+}
+
+header h1 { margin: 0 0 8px; font-size: 1.8rem; }
+
+.subtitle { color: var(--text-dim); font-size: 0.9rem; margin: 0 0 16px; }
+.subtitle a { color: var(--accent-2); }
+
+#refresh-btn {
+  background: var(--accent);
+  color: #1a1a1a;
+  border: none;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+#refresh-btn:hover { opacity: 0.9; }
+#refresh-btn:disabled { opacity: 0.6; cursor: default; }
+
+.jellyfin-status {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0 0 14px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+#toggle-jellyfin-btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--card-border);
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+#toggle-jellyfin-btn:hover { border-color: var(--accent-2); color: var(--accent-2); }
+
+.calendar-link {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 12px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.calendar-link code {
+  background: #0a0c10;
+  color: var(--accent-2);
+  padding: 4px 8px;
+  border-radius: 6px;
+  word-break: break-all;
+}
+.calendar-link button {
+  background: var(--accent-2);
+  color: #0a0c10;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+section { margin-bottom: 40px; }
+
+h2 {
+  font-size: 1.2rem;
+  border-left: 4px solid var(--accent);
+  padding-left: 10px;
+  margin-bottom: 16px;
+}
+
+.highlight .release-card.featured {
+  background: linear-gradient(135deg, #2a2410, #1a1d24);
+  border: 1px solid var(--accent);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 20px;
+}
+.highlight .featured .date { font-size: 1rem; color: var(--accent); font-weight: 600; }
+.highlight .featured .title { font-size: 1.3rem; font-weight: 700; }
+
+.date-header {
+  margin: 24px 0 8px;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+  text-transform: capitalize;
+  border-bottom: 1px solid var(--card-border);
+  padding-bottom: 4px;
+}
+
+.release-list { display: flex; flex-direction: column; gap: 8px; }
+
+.release-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.release-card .date {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  min-width: 80px;
+}
+
+.release-card .title {
+  color: var(--text);
+  text-decoration: none;
+  flex: 1;
+}
+.release-card .title:hover { color: var(--accent-2); text-decoration: underline; }
+
+.format {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.format-4k-ultra-hd { background: #3a2a5c; color: #c9a9ff; }
+.format-blu-ray { background: #1c3a5c; color: #9ecbff; }
+.format-dvd { background: #3a1c1c; color: #ffb3b3; }
+.format-autre { background: #333; color: #ccc; }
+
+.release-card .details {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  flex: 1;
+}
+
+.source-badge {
+  font-size: 0.68rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-weight: 600;
+  background: #263042;
+  color: #8fb8e8;
+}
+
+.jellyfin-badge {
+  font-size: 0.68rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-weight: 600;
+  background: #22331f;
+  color: #a3d977;
+}
+
+.release-card[data-jellyfin="yes"] {
+  border-color: #3c5c2a;
+}
+
+.errors {
+  margin-top: 12px;
+  color: #ffb3b3;
+  font-size: 0.8rem;
+}
+
+.undated { opacity: 0.85; }
+
+.past { opacity: 0.7; }
+.past-card { font-size: 0.9rem; }
+
+.empty { color: var(--text-dim); text-align: center; padding: 40px 0; }
+
+footer {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  border-top: 1px solid var(--card-border);
+}
+footer a { color: var(--accent-2); }

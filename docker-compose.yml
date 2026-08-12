@@ -1,0 +1,16 @@
+services:
+  sorties-films:
+    build: .
+    container_name: sorties-films
+    ports:
+      - "8080:5000"
+    environment:
+      - REFRESH_HOURS=6   # fréquence de rafraîchissement automatique (en heures)
+      - JELLYFIN_URL=http://192.168.1.X:8096   # URL de ton serveur Jellyfin (laisser vide pour désactiver)
+      - JELLYFIN_API_KEY=                       # clé API Jellyfin (Tableau de bord > Clés API)
+    volumes:
+      - sorties-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  sorties-data:
