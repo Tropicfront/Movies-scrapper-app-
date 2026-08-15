@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prochaines sorties Blu-ray / 4K</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>🎬 Prochaines sorties Blu-ray &amp; 4K Ultra HD</h1>
+  <p class="subtitle">
+    Sources :
+    {% for name, url in sources %}
+      <a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a>{% if not loop.last %} &amp; {% endif %}
+    {% endfor %}
+    {% if updated_at %}
+      &middot; Dernière mise à jour : <span id="updated-at" data-utc="{{ updated_at }}">{{ updated_at }}</span>
+    {% endif %}
+  </p>
+
+  <p class="jellyfin-status">
+    {% if jellyfin_enabled %}
+      🟢 Connecté à Jellyfin
+      {% if jellyfin_matched is not none %}&middot; {{ jellyfin_matched }} sortie(s) déjà dans ta bibliothèque{% endif %}
+    {% else %}
+      ⚪ Jellyfin non configuré (variables JELLYFIN_URL / JELLYFIN_API_KEY)
+    {% endif %}
+  </p>
+
+  <div class="header-actions">
+    <button id="refresh-btn">🔄 Rafraîchir maintenant</button>
+    {% if jellyfin_enabled %}
+      <button id="toggle-jellyfin-btn">📀 Voir seulement ce que j'ai déjà</button>
+    {% endif %}
+  </div>
+
+  <div class="calendar-link">
+    📅 Flux calendrier pour dashboard (Homarr / Homepage, intégration "iCal") :
+    <code id="ics-url"></code>
+    <button id="copy-ics-btn" type="button">Copier</button>
+  </div>
+
+  {% if errors %}
+    <div class="errors">
+      {% for e in errors %}<p>⚠️ {{ e }}</p>{% endfor %}
+    </div>
+  {% endif %}
+</header>
+
+<main>
+  {% if upcoming %}
+    <section class="highlight">
+      <h2>Prochaine sortie</h2>
+      <div class="release-card featured" data-jellyfin="{{ 'yes' if upcoming[0].in_jellyfin else 'no' }}">
+        <span class="date">{{ upcoming[0].date_text }}</span>
+        <a href="{{ upcoming[0].url }}" target="_blank" rel="noopener" class="title">{{ upcoming[0].title }}</a>
+        <span class="details">{{ upcoming[0].details }}</span>
+        <span class="source-badge">{{ upcoming[0].source }}</span>
+        {% if upcoming[0].in_jellyfin %}<span class="jellyfin-badge">📀 Déjà dans Jellyfin</span>{% endif %}
+      </div>
+    </section>
+
+    <section>
+      <h2>Toutes les prochaines sorties ({{ upcoming|length }})</h2>
+      <div class="release-list" id="upcoming-list">
+        {% set ns = namespace(last_date="") %}
+        {% for r in upcoming %}
+          {% if r.date_text != ns.last_date %}
+            <h3 class="date-header">{{ r.date_text }}</h3>
+            {% set ns.last_date = r.date_text %}
+          {% endif %}
+          <div class="release-card" data-jellyfin="{{ 'yes' if r.in_jellyfin else 'no' }}">
+            <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
+            <span class="details">{{ r.details }}</span>
+            <span class="source-badge">{{ r.source }}</span>
+            {% if r.in_jellyfin %}<span class="jellyfin-badge">📀 Déjà dans Jellyfin</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% else %}
+    <p class="empty">Aucune donnée disponible pour le moment. Cliquez sur "Rafraîchir" ou patientez le premier scraping automatique.</p>
+  {% endif %}
+
+  {% if undated %}
+    <section class="undated">
+      <h2>Annoncées, date à préciser ({{ undated|length }})</h2>
+      <div class="release-list">
+        {% for r in undated %}
+          <div class="release-card" data-jellyfin="{{ 'yes' if r.in_jellyfin else 'no' }}">
+            <span class="date">{{ r.date_text }}</span>
+            <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
+            <span class="details">{{ r.details }}</span>
+            <span class="source-badge">{{ r.source }}</span>
+            {% if r.in_jellyfin %}<span class="jellyfin-badge">📀 Déjà dans Jellyfin</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if past %}
+    <section class="past">
+      <h2>Sorties récentes</h2>
+      <div class="release-list">
+        {% for r in past %}
+          <div class="release-card past-card" data-jellyfin="{{ 'yes' if r.in_jellyfin else 'no' }}">
+            <span class="date">{{ r.date_text }}</span>
+            <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
+            <span class="details">{{ r.details }}</span>
+            <span class="source-badge">{{ r.source }}</span>
+            {% if r.in_jellyfin %}<span class="jellyfin-badge">📀 Déjà dans Jellyfin</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+</main>
+
+<footer>
+  <p>Données récupérées automatiquement depuis
+    {% for name, url in sources %}
+      <a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a>{% if not loop.last %} et {% endif %}
+    {% endfor %}
+    . Projet à usage personnel.
+  </p>
+</footer>
+
+<script>
+(function () {
+  const absoluteUrl = window.location.origin + '/calendar.ics';
+  const codeEl = document.getElementById('ics-url');
+  if (codeEl) codeEl.textContent = absoluteUrl;
+  const copyBtn = document.getElementById('copy-ics-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(absoluteUrl);
+        const original = copyBtn.textContent;
+        copyBtn.textContent = '✅ Copié !';
+        setTimeout(() => { copyBtn.textContent = original; }, 1800);
+      } catch (e) {
+        alert('Lien du calendrier : ' + absoluteUrl);
+      }
+    });
+  }
+})();
+
+document.getElementById('refresh-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Mise à jour... (peut prendre 30s à 1min)';
+  try {
+    await fetch('/api/refresh', { method: 'POST' });
+    location.reload();
+  } catch (e) {
+    btn.textContent = '❌ Erreur';
+    setTimeout(() => { btn.disabled = false; btn.textContent = '🔄 Rafraîchir maintenant'; }, 2000);
+  }
+});
+
+const toggleBtn = document.getElementById('toggle-jellyfin-btn');
+if (toggleBtn) {
+  let onlyOwned = false;
+  toggleBtn.addEventListener('click', () => {
+    onlyOwned = !onlyOwned;
+    document.querySelectorAll('.release-card').forEach(card => {
+      const owned = card.dataset.jellyfin === 'yes';
+      card.style.display = (!onlyOwned || owned) ? '' : 'none';
+    });
+    toggleBtn.textContent = onlyOwned ? '👁️ Voir toutes les sorties' : "📀 Voir seulement ce que j'ai déjà";
+  });
+}
+</script>
+</body>
+</html>
