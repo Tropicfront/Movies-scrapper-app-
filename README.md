@@ -2,120 +2,82 @@
 
 Application Docker qui récupère automatiquement le planning des sorties
 Blu-ray / DVD / 4K Ultra HD depuis **4k-ultra-hd.fr** et **edition-limitee.fr**,
-les enrichit avec les **affiches TMDB**, les croise avec ta bibliothèque
-**Jellyfin**, et expose le tout via une page web et des **flux calendrier
-(.ics)** prêts à brancher sur un dashboard type **Homarr** ou **Homepage**.
+les enrichit avec les **affiches TMDB**, les croise avec **Jellyfin** /
+**Radarr** / **Sonarr**, et expose le tout via une page web et un **flux
+calendrier (.ics)** prêt à brancher sur un dashboard type **Homarr** ou
+**Homepage**.
 
 ## Sources de sorties
 
 | Site | Ce qui est scrapé |
 |---|---|
-| **4k-ultra-hd.fr** | Page "Prochaines sorties 4K" (paginée, ~140 titres) + page "Dates en attente" (éditions annoncées sans date précise) |
-| **edition-limitee.fr** | Articles mensuels du calendrier ("Août 2026", "Juillet 2026"...), repérés automatiquement depuis la page hub `/blu-ray-dvd/sortie-blu-ray-dvd/`. Le site publie généralement le mois en cours + 1-2 mois à l'avance. |
-
-> bluray-mania.com a été testé dans une première version mais écarté :
-> les informations de sa page "planning des sorties" manquaient de précision.
+| **4k-ultra-hd.fr** | Page "Prochaines sorties 4K" (paginée, ~140 titres) + page "Dates en attente" |
+| **edition-limitee.fr** | Articles mensuels du calendrier, repérés automatiquement depuis la page hub `/blu-ray-dvd/sortie-blu-ray-dvd/` |
 
 ### Dédoublonnage
-
-Quand le même film/la même série sort à la même date sur les deux sites
-(ex. "Ghost in the Shell 4K Steelbook" sur 4k-ultra-hd.fr et "Ghost in the
-Shell" sur edition-limitee.fr), une seule entrée est conservée — celle de
-**4k-ultra-hd.fr** en priorité. La comparaison se fait sur des titres
-normalisés (minuscules, sans accents, sans mentions de format/édition)
-pour détecter ces doublons même quand les intitulés diffèrent légèrement
-d'un site à l'autre.
-
-### Pourquoi le parsing est robuste
-Aucun des deux scrapers ne dépend de classes CSS précises (qui changent
-facilement lors d'une mise à jour de thème). Ils repèrent les informations
-par motif de texte :
-- **4k-ultra-hd.fr** : un lien vers une fiche `/film/<slug>` suivi d'une
-  ligne "Sortie **DATE** : **Édition** Format *(Année)*"
-- **edition-limitee.fr** : un lien dont le texte commence par "ici en"
-  (ex: "ici en Blu-ray et DVD"), dans un bloc du type
-  "**Titre** ici en Formats. Sorti le Date."
-
-Les dates non précises ("(prochainement)", "3e trimestre 2026"...) sont
-classées à part dans une section "Annoncées, date à préciser" plutôt que
-d'être ignorées.
-
-## Affiches (TMDB)
-
-Si tu renseignes `TMDB_API_KEY`, chaque sortie est enrichie avec :
-- son affiche (récupérée via l'API de recherche multi TMDB, films + séries)
-- un lien vers sa fiche TMDB (utilisé comme lien principal de l'affiche et
-  comme URL de l'événement dans le calendrier)
-
-**Pourquoi TMDB plutôt que TVDB ou IMDb** : API gratuite avec simple
-inscription, couvre films *et* séries en une seule recherche, fiches en
-français. IMDb n'a pas d'API publique officielle (le scraping violerait
-leurs CGU) ; TVDB est plus orienté séries et limité sans compte payant.
-
-**Comment récupérer ta clé API TMDB** : crée un compte gratuit sur
-[themoviedb.org](https://www.themoviedb.org), puis Paramètres → API →
-"Créer" → clé API (v3 auth). Renseigne-la dans `TMDB_API_KEY`.
-
-Le titre scrapé est nettoyé avant recherche (retrait des mentions "4K",
-"Steelbook", "Blu-ray", "Saison X"...) pour maximiser les chances de
-trouver la bonne fiche. Les résultats sont mis en cache indéfiniment une
-fois trouvés (fichier `posters.json` dans le volume de données) ; les
-titres non trouvés sont retentés tous les 7 jours. Si un titre ne
-correspond à aucune affiche, un pictogramme 🎬 est affiché à la place.
-
-> Si `TMDB_API_KEY` n'est pas configuré, l'app fonctionne normalement,
-> simplement sans affiches.
-
-## Intégration Jellyfin
-
-Si tu renseignes `JELLYFIN_URL` et `JELLYFIN_API_KEY`, l'app interroge ta
-bibliothèque Jellyfin (films) à chaque rafraîchissement et marque chaque
-sortie avec un badge **📀 Déjà dans Jellyfin** quand elle correspond à un
-film que tu possèdes déjà (utile pour repérer les rééditions/upgrades —
-ex. un Steelbook 4K d'un film que tu as pour l'instant en DVD).
-
-**Comment récupérer ta clé API Jellyfin** : Tableau de bord Jellyfin →
-Paramètres avancés → Clés API → "+" pour en créer une nouvelle.
-
-Sur la page web, un bouton "📀 Voir seulement ce que j'ai déjà" permet de
-filtrer l'affichage. Côté API/calendrier, ajoute `?jellyfin=only`.
-
-> Si Jellyfin n'est pas configuré, l'app fonctionne normalement, simplement
-> sans les badges/filtre.
+Quand le même titre sort à la même date sur les deux sites, une seule
+entrée est conservée — celle de **4k-ultra-hd.fr** en priorité — grâce à
+une comparaison de titres normalisée (accents/mentions de format retirés).
 
 ## Calendrier pour dashboard (Homarr / Homepage)
 
-L'app expose des flux **iCalendar (.ics)**, le format standard reconnu
-nativement par les widgets "Calendar" de Homarr et Homepage (et par
-Google/Apple/Outlook Calendar) :
+**Flux principal, à utiliser par défaut :**
+```
+http://<ton-serveur>:8080/calendar.ics
+```
+Il contient **toutes** les sorties (4K et Blu-ray/DVD mélangées), triées
+par date — un film 4K et un Blu-ray du même jour apparaissent donc bien
+ensemble, groupés sous la même date, quel que soit leur format ou leur
+site source. Chaque titre est préfixé d'un pictogramme pour distinguer le
+format d'un coup d'œil : 🟣 4K Ultra HD, 🔵 Blu-ray, 🔴 DVD.
 
-| Flux | Contenu |
-|---|---|
-| `/calendar.ics` | Toutes les sorties |
-| `/calendar-4k.ics` | Uniquement les sorties 4K Ultra HD |
-| `/calendar-bluray.ics` | Uniquement les sorties Blu-ray / DVD (non-4K) |
+Deux flux additionnels existent si tu préfères deux panneaux séparés
+(au prix de ne plus voir les deux formats mélangés au même jour) :
+- `/calendar-4k.ics` — uniquement les sorties 4K
+- `/calendar-bluray.ics` — uniquement les sorties Blu-ray/DVD
 
-**Sur la couleur par format** : les widgets calendrier de Homarr/Homepage
-appliquent une couleur *par flux/intégration*, pas événement par événement.
-Il n'existe pas de mécanisme pour colorer différemment deux événements
-d'un même flux ICS dans ces dashboards. La solution est donc d'ajouter
-**les deux flux `/calendar-4k.ics` et `/calendar-bluray.ics` comme deux
-intégrations distinctes**, chacune avec sa propre couleur — c'est ce que
-montrent les exemples ci-dessous. (Chaque événement porte tout de même une
-propriété `COLOR` standard RFC 7986 dans le flux complet `/calendar.ics`,
-pour les clients qui la supportent, comme Apple Calendar.)
+Paramètres optionnels (sur les 3 flux) : `?scope=all` (inclut l'historique
+récent), `?jellyfin=only` (uniquement ce que tu as déjà).
 
-Paramètres optionnels (cumulables, sur les 3 flux) :
-- `?scope=all` — inclut aussi les 30 dernières sorties passées (par défaut,
-  seules les sorties à venir sont incluses)
-- `?jellyfin=only` — uniquement les sorties correspondant à un film déjà
-  présent dans ta bibliothèque Jellyfin
+### Correctif de l'horaire fantôme ("02:00 - 23:59")
+
+Si tu as déjà testé une version précédente, tu as peut-être vu chaque
+sortie affichée avec un horaire du type "02:00 - 23:59" au lieu d'un
+événement "journée entière" sans heure. **C'est corrigé.** La cause : les
+événements "journée entière" (une date, sans heure) doivent porter un
+`DTEND` explicite (date de fin = jour suivant) pour être reconnus comme
+tels par la plupart des parseurs ICS, dont celui utilisé par Homarr — sans
+lui, certains parseurs calculent une durée par défaut à partir de minuit
+UTC puis la reconvertissent dans ton fuseau local, ce qui produit cet
+horaire qui n'a aucun sens. Le flux ajoute maintenant :
+- `DTSTART`/`DTEND` en `VALUE=DATE` (forme standard, celle utilisée par
+  Google/Apple/Outlook pour les événements d'un jour)
+- `TRANSP:TRANSPARENT` et `X-MICROSOFT-CDO-ALLDAYEVENT:TRUE` (marqueurs
+  additionnels reconnus par de nombreux clients calendrier)
+
+Si un ancien flux était déjà en cache côté Homarr/Homepage, un
+rafraîchissement forcé du widget (ou une purge de cache) peut être
+nécessaire pour voir la correction.
+
+### Sur les affiches dans le calendrier
+
+**Aucun widget calendrier (Homarr, Homepage, Google/Apple/Outlook inclus)
+n'affiche d'affiche/poster à partir d'un flux `.ics`** — ce n'est pas
+prévu par le format, quel que soit le contournement technique. La carte
+avec poster + bouton IMDb que tu as vue vient du **widget natif
+Radarr/Sonarr** de Homarr, qui se connecte directement à ton instance
+Radarr/Sonarr (pas à un flux ICS externe) et affiche les données que
+Radarr/Sonarr gèrent eux-mêmes. Ce rendu n'est donc reproductible que si
+tu utilises Radarr/Sonarr pour les titres concernés, via leur propre
+widget dans Homarr.
+
+Sur la page web de cette app (`http://<ton-serveur>:8080/`), les affiches
+s'affichent normalement (voir section TMDB ci-dessous) — c'est uniquement
+dans un flux `.ics` que ce n'est pas possible.
 
 ### Configuration Homepage
-
-Dans `services.yaml`, une entrée par flux :
 ```yaml
-- Sorties 4K:
+- Sorties Films:
     widget:
       type: calendar
       maxEvents: 15
@@ -124,25 +86,46 @@ Dans `services.yaml`, une entrée par flux :
       firstDayInWeek: monday
       integrations:
         - type: ical
-          url: http://<ton-serveur>:8080/calendar-4k.ics
-          name: Sorties 4K
-          color: purple
-          params:
-            showName: true
-        - type: ical
-          url: http://<ton-serveur>:8080/calendar-bluray.ics
-          name: Sorties Blu-ray/DVD
-          color: blue
+          url: http://<ton-serveur>:8080/calendar.ics
+          name: Sorties Films
+          color: yellow
           params:
             showName: true
 ```
 
 ### Configuration Homarr
+Menu **Intégrations** → Ajouter → **iCal**, avec l'URL
+`http://<ton-serveur>:8080/calendar.ics`, puis ajoute un widget
+**Calendar** et sélectionne cette intégration.
 
-Menu **Intégrations** → Ajouter → **iCal**, une fois pour chaque flux
-(`.../calendar-4k.ics` et `.../calendar-bluray.ics`), en leur donnant une
-couleur différente, puis ajoute un widget **Calendar** sur ton board et
-sélectionne les deux intégrations.
+## Affiches (TMDB)
+
+Renseigne `TMDB_API_KEY` (clé gratuite sur
+[themoviedb.org](https://www.themoviedb.org) → Paramètres → API) pour que
+chaque sortie récupère son affiche et un lien vers sa fiche TMDB. Cache
+persistant (`posters.json`), retenté tous les 7 jours pour les titres non
+trouvés. TMDB plutôt que TVDB/IMDb : API gratuite, couvre films et séries,
+fiches en français ; IMDb n'a pas d'API publique, TVDB est limité sans
+compte payant.
+
+## Intégrations Jellyfin / Radarr / Sonarr
+
+Chacune est indépendante et optionnelle (laisser les variables vides pour
+désactiver) :
+
+| Variables | Effet |
+|---|---|
+| `JELLYFIN_URL` / `JELLYFIN_API_KEY` | Badge 📀 sur les sorties déjà présentes dans ta bibliothèque Jellyfin |
+| `RADARR_URL` / `RADARR_API_KEY` | Badge 🎬 sur les sorties déjà suivies dans Radarr |
+| `SONARR_URL` / `SONARR_API_KEY` | Badge 📺 sur les sorties déjà suivies dans Sonarr |
+
+Clés API : Jellyfin → Tableau de bord → Paramètres avancés → Clés API.
+Radarr/Sonarr → Paramètres → Général → Sécurité → Clé API.
+
+> Ces intégrations ne font que **lire** tes bibliothèques pour comparer
+> les titres (comparaison normalisée + tolérance aux petites variations
+> via `difflib`) — elles n'ajoutent, ne modifient ni ne suppriment rien
+> dans Jellyfin/Radarr/Sonarr.
 
 ## Démarrage rapide
 
@@ -150,61 +133,63 @@ sélectionne les deux intégrations.
 docker compose up -d --build
 ```
 
-Puis ouvre : http://localhost:8080
+Puis ouvre : http://localhost:8080. Le premier scraping se lance
+automatiquement, puis se répète toutes les `REFRESH_HOURS` heures.
 
-Le premier scraping se lance automatiquement au démarrage, puis se répète
-toutes les `REFRESH_HOURS` heures (6h par défaut). Un scraping complet
-prend en général 30s à 2min (scraping des deux sites + recherches TMDB
-pour les nouveaux titres, avec pauses courtes entre les requêtes).
+## docker-compose.yml complet
 
-## Configuration
+```yaml
+services:
+  sorties-films:
+    build: .
+    container_name: sorties-films
+    ports:
+      - "8080:5000"
+    environment:
+      - REFRESH_HOURS=6   # fréquence de rafraîchissement automatique (en heures)
+      - JELLYFIN_URL=http://192.168.1.X:8096   # URL de ton serveur Jellyfin (laisser vide pour désactiver)
+      - JELLYFIN_API_KEY=                       # clé API Jellyfin (Tableau de bord > Clés API)
+      - TMDB_API_KEY=                           # clé API TMDB v3 (gratuite) pour les affiches (laisser vide pour désactiver)
+      - TMDB_LANGUAGE=fr-FR                     # langue des fiches/affiches TMDB
+      - RADARR_URL=http://192.168.1.X:7878      # URL de ton instance Radarr (laisser vide pour désactiver)
+      - RADARR_API_KEY=                          # clé API Radarr (Paramètres > Général > Sécurité)
+      - SONARR_URL=http://192.168.1.X:8989      # URL de ton instance Sonarr (laisser vide pour désactiver)
+      - SONARR_API_KEY=                          # clé API Sonarr (Paramètres > Général > Sécurité)
+    volumes:
+      - sorties-data:/app/data
+    restart: unless-stopped
 
-Variables d'environnement (dans `docker-compose.yml`) :
+volumes:
+  sorties-data:
+```
+
+## Configuration (détail des variables)
 
 - `REFRESH_HOURS` : fréquence de rafraîchissement automatique (défaut : 6)
-- `EDITION_LIMITEE_MONTH_ARTICLES` : nombre d'articles mensuels à scraper
-  sur edition-limitee.fr (défaut : 3)
-- `JELLYFIN_URL` / `JELLYFIN_API_KEY` : intégration Jellyfin (laisser vide
-  pour désactiver)
-- `JELLYFIN_FUZZY_CUTOFF` : seuil de tolérance pour la comparaison
-  approximative des titres Jellyfin (0 à 1, défaut : 0.88)
-- `TMDB_API_KEY` : intégration TMDB pour les affiches (laisser vide pour
-  désactiver)
-- `TMDB_LANGUAGE` : langue des fiches/affiches TMDB (défaut : fr-FR)
+- `EDITION_LIMITEE_MONTH_ARTICLES` : nombre d'articles mensuels scrapés sur edition-limitee.fr (défaut : 3)
+- `JELLYFIN_URL` / `JELLYFIN_API_KEY` / `JELLYFIN_FUZZY_CUTOFF` (défaut 0.88)
+- `TMDB_API_KEY` / `TMDB_LANGUAGE` (défaut fr-FR)
+- `RADARR_URL` / `RADARR_API_KEY`
+- `SONARR_URL` / `SONARR_API_KEY`
+- `ARR_FUZZY_CUTOFF` : tolérance de comparaison de titres Radarr/Sonarr (défaut : 0.88)
 - `PORT` : port interne du serveur (défaut : 5000, exposé en 8080 côté hôte)
 
 ## Endpoints
 
-- `GET /` — page web (prochaine sortie, planning à venir avec affiches,
-  dates à préciser, sorties récentes)
-- `GET /api/releases` — données JSON (`?jellyfin=only`, `?category=4k|bluray`)
-- `GET /calendar.ics` (alias `/api/calendar.ics`) — flux iCalendar complet
-- `GET /calendar-4k.ics` — flux iCalendar, sorties 4K uniquement
-- `GET /calendar-bluray.ics` — flux iCalendar, sorties Blu-ray/DVD uniquement
-- `GET /api/jellyfin/status` — vérifie la connexion à Jellyfin et le
-  nombre de films détectés dans la bibliothèque
+- `GET /` — page web (prochaine sortie, planning avec affiches, dates à préciser, sorties récentes)
+- `GET /api/releases` — JSON (`?jellyfin=only`, `?category=4k|bluray`)
+- `GET /calendar.ics` — flux iCalendar complet, trié par date (recommandé)
+- `GET /calendar-4k.ics` / `GET /calendar-bluray.ics` — flux scindés par format
+- `GET /api/jellyfin/status`, `/api/radarr/status`, `/api/sonarr/status` — vérifient chaque intégration
 - `POST /api/refresh` — force un rafraîchissement immédiat
 - `GET /health` — healthcheck
 
 ## Persistance
 
-Les données scrapées (`releases.json`) et le cache d'affiches TMDB
-(`posters.json`) sont sauvegardés dans un volume Docker (`sorties-data`).
-Si un scraping échoue (site indisponible, changement de structure,
-Jellyfin/TMDB injoignable...), l'ancien cache est conservé et l'erreur est
-affichée en haut de la page plutôt que de vider les données.
-
-## Sans Docker Compose
-
-```bash
-docker build -t sorties-films .
-docker run -d -p 8080:5000 \
-  -e JELLYFIN_URL=http://192.168.1.10:8096 \
-  -e JELLYFIN_API_KEY=xxxxx \
-  -e TMDB_API_KEY=xxxxx \
-  -v sorties-data:/app/data \
-  sorties-films
-```
+`releases.json` et `posters.json` sont sauvegardés dans le volume Docker
+`sorties-data`. En cas d'échec d'une source (site, Jellyfin, Radarr,
+Sonarr, TMDB indisponible), l'ancien cache est conservé et l'erreur
+s'affiche en haut de la page.
 
 ## Développement local (sans Docker)
 
@@ -213,13 +198,13 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Pour tester un module isolément :
-
+Modules testables isolément :
 ```bash
 python scraper_4k.py
 python scraper_editionlimitee.py
 python calendar_feed.py
-JELLYFIN_URL=http://... JELLYFIN_API_KEY=... python jellyfin_client.py
+JELLYFIN_URL=... JELLYFIN_API_KEY=... python jellyfin_client.py
+RADARR_URL=... RADARR_API_KEY=... python radarr_sonarr_client.py
 TMDB_API_KEY=... python poster_lookup.py
 ```
 
@@ -227,12 +212,13 @@ TMDB_API_KEY=... python poster_lookup.py
 
 ```
 .
-├── app.py                       # Application Flask + planificateur + fusion des sources
-├── date_utils.py                 # Dates FR, normalisation de titres, classification de format
+├── app.py                       # Flask + planificateur + fusion des sources
+├── date_utils.py                 # Dates FR, normalisation titres, classification format
 ├── scraper_4k.py                  # Scraper 4k-ultra-hd.fr
 ├── scraper_editionlimitee.py      # Scraper edition-limitee.fr
-├── jellyfin_client.py             # Croisement avec la bibliothèque Jellyfin
-├── poster_lookup.py                # Récupération des affiches via TMDB
+├── jellyfin_client.py             # Croisement Jellyfin
+├── radarr_sonarr_client.py         # Croisement Radarr / Sonarr
+├── poster_lookup.py                # Affiches via TMDB
 ├── calendar_feed.py                # Génération des flux iCalendar (.ics)
 ├── templates/index.html            # Page web
 ├── static/style.css                # Style

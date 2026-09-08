@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py date_utils.py scraper_4k.py scraper_editionlimitee.py calendar_feed.py jellyfin_client.py poster_lookup.py ./
+COPY app.py date_utils.py scraper_4k.py scraper_editionlimitee.py calendar_feed.py jellyfin_client.py poster_lookup.py radarr_sonarr_client.py ./
 COPY templates ./templates
 COPY static ./static
 

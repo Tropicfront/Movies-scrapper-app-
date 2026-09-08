@@ -5,37 +5,51 @@ Le format iCal (RFC 5545) est le standard universel supporté nativement
 par les widgets "Calendar" de Homepage et Homarr (intégration "ical"),
 ainsi que par Google Calendar, Apple Calendar, Outlook, etc.
 
-Notes d'implémentation :
-- Les événements sont "journée entière" (VALUE=DATE, sans heure) et
-  n'ont volontairement PAS de DTEND : selon la RFC 5545, un événement
-  DATE sans DTEND ni DURATION dure implicitement 1 jour. Certains
-  parseurs ICS plus permissifs affichent en revanche un DTEND explicite
-  comme si l'événement débordait sur le jour suivant (ce qui pouvait
-  ressembler à un "timer"/une durée dans certains dashboards) — on
-  l'évite en s'appuyant sur la durée implicite.
-- Chaque événement porte une propriété COLOR (RFC 7986, nom de couleur
-  CSS3) qui dépend du format (4K / Blu-ray / DVD). Peu de clients
-  l'exploitent, donc pour Homarr/Homepage, il vaut mieux utiliser les
-  flux séparés /calendar-4k.ics et /calendar-bluray.ics, chacun ajouté
-  comme une intégration différente avec sa propre couleur dans le
-  dashboard (ces widgets colorent par flux, pas par événement).
+Notes d'implémentation (événements "journée entière") :
+- DTSTART et DTEND sont tous les deux des dates seules (VALUE=DATE, sans
+  heure), avec DTEND = jour suivant. C'est la forme EXACTE utilisée par
+  Google Calendar / Apple Calendar / Outlook pour un événement d'un jour.
+  Un essai précédent omettait le DTEND (légal selon la RFC : durée
+  implicite d'1 jour), mais plusieurs parseurs moins stricts (dont celui
+  utilisé par Homarr) ne gèrent pas bien cette durée implicite et
+  affichent alors une heure de début/fin calculée à partir d'UTC et
+  reconvertie dans le fuseau du navigateur — d'où l'horaire du type
+  "02:00 - 23:59" qui n'a aucun sens et n'est pas un vrai horaire de
+  sortie. Le DTEND explicite règle ce problème dans la quasi-totalité des
+  clients.
+- On ajoute aussi TRANSP:TRANSPARENT et X-MICROSOFT-CDO-ALLDAYEVENT:TRUE,
+  deux marqueurs (le second non-standard mais largement reconnu, issu
+  d'Outlook) qui aident certains parseurs à identifier explicitement
+  l'événement comme "journée entière" plutôt que de tenter de lui
+  calculer un horaire.
+- Chaque événement porte quand même une propriété COLOR (RFC 7986) et un
+  emoji dans le titre selon le format (4K / Blu-ray / DVD), utile pour
+  les clients qui les exploitent. Mais la plupart des dashboards (Homarr,
+  Homepage) colorent par flux entier et pas par événement : preferer un
+  flux unique (build_ics) trié par date plutôt que les flux scindés si
+  tu veux que 4K et Blu-ray apparaissent ensemble au bon jour.
 """
 
 import hashlib
-from datetime import date as date_cls, datetime, timezone
+from datetime import date as date_cls, datetime, timedelta, timezone
 
 from icalendar import Calendar, Event
 
 CALENDAR_NAME = "Sorties Blu-ray / DVD / 4K"
 
-# Couleurs CSS3 (RFC 7986) par catégorie de format
+# Couleurs CSS3 (RFC 7986) et emoji par catégorie de format
 CATEGORY_COLORS = {
     "4k": "blueviolet",
     "bluray": "dodgerblue",
     "dvd": "crimson",
     "autre": "gray",
 }
-
+CATEGORY_EMOJI = {
+    "4k": "🟣",
+    "bluray": "🔵",
+    "dvd": "🔴",
+    "autre": "",
+}
 CATEGORY_LABELS_FALLBACK = {
     "4k": "4K Ultra HD",
     "bluray": "Blu-ray",
@@ -76,15 +90,25 @@ def build_ics(releases):
         event = Event()
         event.add("uid", _make_uid(r))
 
+        category = r.get("format_category", "autre")
+        emoji = CATEGORY_EMOJI.get(category, "")
+
         summary = r.get("title", "Sortie")
         if r.get("in_jellyfin"):
             summary = f"📀 {summary}"  # déjà dans la bibliothèque Jellyfin
+        if emoji:
+            summary = f"{emoji} {summary}"
         event.add("summary", summary)
 
-        event.add("dtstart", start)   # date seule, sans dtend -> durée implicite de 1 jour (pas de "timer")
+        # Événement "journée entière" standard : DTSTART + DTEND (exclusif,
+        # jour suivant), tous deux en VALUE=DATE -> aucune heure affichable.
+        event.add("dtstart", start)
+        event.add("dtend", start + timedelta(days=1))
         event.add("dtstamp", now_utc)
+        event.add("transp", "TRANSPARENT")
+        event.add("x-microsoft-cdo-alldayevent", "TRUE")
+        event.add("x-microsoft-cdo-busystatus", "FREE")
 
-        category = r.get("format_category", "autre")
         event.add("color", CATEGORY_COLORS.get(category, CATEGORY_COLORS["autre"]))
 
         description_parts = []
@@ -94,6 +118,10 @@ def build_ics(releases):
             description_parts.append(f"Source : {r['source']}")
         if r.get("in_jellyfin"):
             description_parts.append("Déjà présent dans ta bibliothèque Jellyfin")
+        if r.get("in_radarr"):
+            description_parts.append("Déjà suivi dans Radarr")
+        if r.get("in_sonarr"):
+            description_parts.append("Déjà suivi dans Sonarr")
         if r.get("poster_page_url"):
             description_parts.append(f"Fiche : {r['poster_page_url']}")
         if description_parts:
@@ -104,7 +132,7 @@ def build_ics(releases):
         event.add("url", r.get("poster_page_url") or r.get("url", ""))
 
         if r.get("poster_url"):
-            event.add("attach", r["poster_url"])  # affiche en pièce jointe (supporté par certains clients, ex. Apple Calendar)
+            event.add("attach", r["poster_url"])  # rarement rendu comme vignette par les clients calendrier, ajouté à titre indicatif
 
         categories = [c for c in (r.get("source"), CATEGORY_LABELS_FALLBACK.get(category)) if c]
         if categories:

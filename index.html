@@ -35,6 +35,8 @@
         {{ category_badge(r) }}
         <span class="source-badge">{{ r.source }}</span>
         {% if r.in_jellyfin %}<span class="jellyfin-badge">📀 Déjà dans Jellyfin</span>{% endif %}
+        {% if r.in_radarr %}<span class="radarr-badge">🎬 Déjà dans Radarr</span>{% endif %}
+        {% if r.in_sonarr %}<span class="sonarr-badge">📺 Déjà dans Sonarr</span>{% endif %}
       </div>
     </div>
   </div>
@@ -54,17 +56,17 @@
 
   <p class="jellyfin-status">
     {% if jellyfin_enabled %}
-      🟢 Connecté à Jellyfin
-      {% if jellyfin_matched is not none %}&middot; {{ jellyfin_matched }} sortie(s) déjà dans ta bibliothèque{% endif %}
+      🟢 Jellyfin
+      {% if jellyfin_matched is not none %}({{ jellyfin_matched }} déjà possédée(s)){% endif %}
     {% else %}
-      ⚪ Jellyfin non configuré (variables JELLYFIN_URL / JELLYFIN_API_KEY)
+      ⚪ Jellyfin non configuré
     {% endif %}
     &middot;
-    {% if tmdb_enabled %}
-      🟢 Affiches TMDB actives
-    {% else %}
-      ⚪ TMDB non configuré (variable TMDB_API_KEY)
-    {% endif %}
+    {% if radarr_enabled %}🟢 Radarr{% else %}⚪ Radarr non configuré{% endif %}
+    &middot;
+    {% if sonarr_enabled %}🟢 Sonarr{% else %}⚪ Sonarr non configuré{% endif %}
+    &middot;
+    {% if tmdb_enabled %}🟢 Affiches TMDB{% else %}⚪ TMDB non configuré{% endif %}
   </p>
 
   <div class="header-actions">
@@ -75,15 +77,22 @@
   </div>
 
   <div class="calendar-link">
-    📅 Flux calendrier pour dashboard (Homarr / Homepage, intégration "iCal") — ajoute-les comme 2 intégrations séparées pour les colorer différemment :
+    📅 Flux calendrier pour dashboard (Homarr / Homepage, intégration "iCal") — sorties 4K et Blu-ray/DVD mélangées, triées par date (🟣 4K, 🔵 Blu-ray, 🔴 DVD) :
     <div class="calendar-link-row">
-      <span class="cal-dot cat-4k"></span> <code class="ics-url" data-path="/calendar-4k.ics"></code>
+      <code class="ics-url" data-path="/calendar.ics"></code>
       <button class="copy-ics-btn" type="button">Copier</button>
     </div>
-    <div class="calendar-link-row">
-      <span class="cal-dot cat-bluray"></span> <code class="ics-url" data-path="/calendar-bluray.ics"></code>
-      <button class="copy-ics-btn" type="button">Copier</button>
-    </div>
+    <details class="calendar-link-alt">
+      <summary>Ou deux flux séparés (un par format, pour les colorer différemment dans le dashboard — voir le README)</summary>
+      <div class="calendar-link-row">
+        <span class="cal-dot cat-4k"></span> <code class="ics-url" data-path="/calendar-4k.ics"></code>
+        <button class="copy-ics-btn" type="button">Copier</button>
+      </div>
+      <div class="calendar-link-row">
+        <span class="cal-dot cat-bluray"></span> <code class="ics-url" data-path="/calendar-bluray.ics"></code>
+        <button class="copy-ics-btn" type="button">Copier</button>
+      </div>
+    </details>
   </div>
 
   {% if errors %}

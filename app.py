@@ -9,6 +9,7 @@ from flask import Flask, Response, jsonify, render_template, request
 import calendar_feed
 import jellyfin_client
 import poster_lookup
+import radarr_sonarr_client
 import scraper_4k
 import scraper_editionlimitee
 from date_utils import normalize_title
@@ -105,6 +106,22 @@ def refresh_data():
             logger.exception("Échec de la récupération des affiches TMDB")
             errors.append(f"TMDB : {exc}")
 
+    if radarr_sonarr_client.is_configured():
+        try:
+            radarr_titles = radarr_sonarr_client.fetch_radarr_titles()
+            sonarr_titles = radarr_sonarr_client.fetch_sonarr_titles()
+            releases = radarr_sonarr_client.annotate_with_libraries(releases, radarr_titles, sonarr_titles)
+        except Exception as exc:
+            logger.exception("Échec de la connexion à Radarr/Sonarr")
+            errors.append(f"Radarr/Sonarr : {exc}")
+            for r in releases:
+                r.setdefault("in_radarr", False)
+                r.setdefault("in_sonarr", False)
+    else:
+        for r in releases:
+            r["in_radarr"] = False
+            r["in_sonarr"] = False
+
     jellyfin_matched = None
     if jellyfin_client.is_configured():
         try:
@@ -133,6 +150,9 @@ def get_sorted_releases():
     releases = cache.get("releases", [])
 
     def sort_key(r):
+        # Tri uniquement par date : les sorties 4K et Blu-ray/DVD d'un même
+        # jour se retrouvent donc mélangées ensemble, dans l'ordre du jour,
+        # peu importe le format ou la source.
         return r.get("date_iso") or "9999-12-31"
 
     dated = sorted([r for r in releases if r.get("date_iso")], key=sort_key)
@@ -148,6 +168,8 @@ def get_sorted_releases():
         "jellyfin_enabled": jellyfin_client.is_configured(),
         "jellyfin_matched": cache.get("jellyfin_matched"),
         "tmdb_enabled": poster_lookup.is_configured(),
+        "radarr_enabled": radarr_sonarr_client.radarr_configured(),
+        "sonarr_enabled": radarr_sonarr_client.sonarr_configured(),
         "upcoming": upcoming,
         "undated": undated,
         "past": past,
@@ -177,6 +199,8 @@ def index():
         jellyfin_enabled=data["jellyfin_enabled"],
         jellyfin_matched=data["jellyfin_matched"],
         tmdb_enabled=data["tmdb_enabled"],
+        radarr_enabled=data["radarr_enabled"],
+        sonarr_enabled=data["sonarr_enabled"],
         sources=[
             ("4K-Ultra-HD.fr", "https://4k-ultra-hd.fr/prochaines-sorties-blu-ray-4k-ultra-hd"),
             ("Édition-Limitée.fr", "https://edition-limitee.fr/blu-ray-dvd/sortie-blu-ray-dvd/"),
@@ -204,6 +228,8 @@ def _calendar_response(scope, only_jellyfin, category):
     if scope == "all":
         releases += data["past"]
     releases = _filter_releases(releases, only_jellyfin, category)
+    # déjà trié par date via get_sorted_releases() -> 4K et Blu-ray/DVD
+    # apparaissent mélangés, dans l'ordre chronologique, le même jour.
 
     ics_bytes = calendar_feed.build_ics(releases)
     return Response(
@@ -219,8 +245,12 @@ def _calendar_response(scope, only_jellyfin, category):
 @app.route("/api/calendar.ics")
 @app.route("/calendar.ics")  # alias court, pratique à coller dans Homarr/Homepage
 def calendar_ics():
-    """Flux iCalendar (.ics) à donner à un widget calendrier (Homarr, Homepage,
-    Google/Apple/Outlook Calendar...).
+    """Flux iCalendar (.ics) UNIQUE et fusionné (4K + Blu-ray/DVD, trié par
+    date) à donner à un widget calendrier (Homarr, Homepage, Google/Apple/
+    Outlook Calendar...). C'est le flux à utiliser par défaut : les sorties
+    apparaissent groupées par jour quel que soit leur format (chaque titre
+    est préfixé d'un pictogramme de couleur — 🟣 4K, 🔵 Blu-ray, 🔴 DVD —
+    pour les distinguer visuellement dans une même liste/vue).
 
     Paramètres optionnels :
       ?scope=upcoming     -> uniquement les sorties à venir (défaut)
@@ -239,9 +269,10 @@ def calendar_ics():
 
 @app.route("/calendar-4k.ics")
 def calendar_ics_4k():
-    """Flux iCalendar limité aux sorties 4K Ultra HD — à ajouter comme
-    intégration séparée dans Homarr/Homepage pour lui donner sa propre
-    couleur (ces widgets colorent par flux, pas par événement)."""
+    """Flux iCalendar limité aux sorties 4K Ultra HD. À réserver aux cas où
+    tu veux vraiment deux panneaux séparés dans ton dashboard (au prix de
+    ne plus voir 4K et Blu-ray mélangés au même jour) — sinon utilise
+    /calendar.ics qui contient tout, trié par date."""
     scope = request.args.get("scope", "upcoming")
     only_jellyfin = request.args.get("jellyfin") == "only"
     return _calendar_response(scope, only_jellyfin, "4k")
@@ -249,8 +280,7 @@ def calendar_ics_4k():
 
 @app.route("/calendar-bluray.ics")
 def calendar_ics_bluray():
-    """Flux iCalendar limité aux sorties Blu-ray / DVD (tout ce qui n'est
-    pas 4K) — pendant du flux ci-dessus, à ajouter avec une autre couleur."""
+    """Pendant du flux ci-dessus, pour les sorties Blu-ray / DVD (non-4K)."""
     scope = request.args.get("scope", "upcoming")
     only_jellyfin = request.args.get("jellyfin") == "only"
     return _calendar_response(scope, only_jellyfin, "bluray_dvd")
@@ -263,6 +293,28 @@ def jellyfin_status():
     try:
         titles = jellyfin_client.fetch_library_titles()
         return jsonify({"configured": True, "reachable": True, "movies_in_library": len(titles)})
+    except Exception as exc:
+        return jsonify({"configured": True, "reachable": False, "error": str(exc)}), 502
+
+
+@app.route("/api/radarr/status")
+def radarr_status():
+    if not radarr_sonarr_client.radarr_configured():
+        return jsonify({"configured": False, "message": "RADARR_URL / RADARR_API_KEY non définis"})
+    try:
+        titles = radarr_sonarr_client.fetch_radarr_titles()
+        return jsonify({"configured": True, "reachable": True, "movies_in_library": len(titles)})
+    except Exception as exc:
+        return jsonify({"configured": True, "reachable": False, "error": str(exc)}), 502
+
+
+@app.route("/api/sonarr/status")
+def sonarr_status():
+    if not radarr_sonarr_client.sonarr_configured():
+        return jsonify({"configured": False, "message": "SONARR_URL / SONARR_API_KEY non définis"})
+    try:
+        titles = radarr_sonarr_client.fetch_sonarr_titles()
+        return jsonify({"configured": True, "reachable": True, "series_in_library": len(titles)})
     except Exception as exc:
         return jsonify({"configured": True, "reachable": False, "error": str(exc)}), 502
 

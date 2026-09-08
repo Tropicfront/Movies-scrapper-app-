@@ -112,6 +112,16 @@ header h1 { margin: 0 0 8px; font-size: 1.8rem; }
   cursor: pointer;
   font-size: 0.78rem;
 }
+.calendar-link-alt {
+  margin-top: 10px;
+  text-align: center;
+}
+.calendar-link-alt summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+.calendar-link-alt summary:hover { color: var(--accent-2); }
 
 main {
   max-width: 860px;
@@ -246,6 +256,26 @@ h2 {
   font-weight: 600;
   background: #22331f;
   color: #a3d977;
+}
+
+.radarr-badge {
+  font-size: 0.68rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-weight: 600;
+  background: #3a2a1a;
+  color: #f0b060;
+}
+
+.sonarr-badge {
+  font-size: 0.68rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-weight: 600;
+  background: #1a2a3a;
+  color: #6fc3e8;
 }
 
 .release-card[data-jellyfin="yes"] {
