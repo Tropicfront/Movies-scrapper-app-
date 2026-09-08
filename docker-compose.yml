@@ -6,6 +6,7 @@ services:
       - "8080:5000"
     environment:
       - REFRESH_HOURS=6   # fréquence de rafraîchissement automatique (en heures)
+      - APP_TIMEZONE=Europe/Paris                # fuseau horaire d'affichage (ex: America/New_York, Europe/Paris)
       - JELLYFIN_URL=http://192.168.1.X:8096   # URL de ton serveur Jellyfin (laisser vide pour désactiver)
       - JELLYFIN_API_KEY=                       # clé API Jellyfin (Tableau de bord > Clés API)
       - TMDB_API_KEY=                           # clé API TMDB v3 (gratuite) pour les affiches (laisser vide pour désactiver)

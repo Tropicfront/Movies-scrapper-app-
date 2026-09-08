@@ -138,15 +138,18 @@ automatiquement, puis se répète toutes les `REFRESH_HOURS` heures.
 
 ## docker-compose.yml complet
 
+Ce fichier utilise directement l'image publiée (voir section ci-dessus) plutôt que de builder depuis les sources :
+
 ```yaml
 services:
   sorties-films:
-    build: .
+    image: tropicfront/movies_scrapper:latest
     container_name: sorties-films
     ports:
       - "8080:5000"
     environment:
       - REFRESH_HOURS=6   # fréquence de rafraîchissement automatique (en heures)
+      - APP_TIMEZONE=Europe/Paris                # fuseau horaire d'affichage (ex: America/New_York, Europe/Paris)
       - JELLYFIN_URL=http://192.168.1.X:8096   # URL de ton serveur Jellyfin (laisser vide pour désactiver)
       - JELLYFIN_API_KEY=                       # clé API Jellyfin (Tableau de bord > Clés API)
       - TMDB_API_KEY=                           # clé API TMDB v3 (gratuite) pour les affiches (laisser vide pour désactiver)
@@ -166,6 +169,7 @@ volumes:
 ## Configuration (détail des variables)
 
 - `REFRESH_HOURS` : fréquence de rafraîchissement automatique (défaut : 6)
+- `APP_TIMEZONE` : fuseau horaire IANA utilisé pour afficher l'heure de dernière mise à jour (défaut : `Europe/Paris`, ex. `America/New_York`, `Asia/Tokyo`)
 - `EDITION_LIMITEE_MONTH_ARTICLES` : nombre d'articles mensuels scrapés sur edition-limitee.fr (défaut : 3)
 - `JELLYFIN_URL` / `JELLYFIN_API_KEY` / `JELLYFIN_FUZZY_CUTOFF` (défaut 0.88)
 - `TMDB_API_KEY` / `TMDB_LANGUAGE` (défaut fr-FR)

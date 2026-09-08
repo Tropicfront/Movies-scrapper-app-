@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, jsonify, render_template, request
@@ -22,6 +23,7 @@ CACHE_FILE = os.path.join(DATA_DIR, "releases.json")
 POSTER_CACHE_FILE = os.path.join(DATA_DIR, "posters.json")
 REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "6"))
 EL_MONTH_ARTICLES = int(os.environ.get("EDITION_LIMITEE_MONTH_ARTICLES", "3"))
+APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 
 # Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
 # sources, on ne garde que celle de la source la mieux classée ici.
@@ -32,6 +34,29 @@ SOURCE_PRIORITY = {
 
 app = Flask(__name__)
 os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def _get_app_timezone():
+    try:
+        return ZoneInfo(APP_TIMEZONE)
+    except ZoneInfoNotFoundError:
+        logger.warning("APP_TIMEZONE %r invalide, repli sur UTC", APP_TIMEZONE)
+        return timezone.utc
+
+
+def format_updated_at(iso_str):
+    """Formate un horodatage ISO (stocké en UTC) en heure locale, au format
+    jour/mois/année à heure:minutes:seconde, dans le fuseau APP_TIMEZONE."""
+    if not iso_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_str)
+    except ValueError:
+        return iso_str
+    local_dt = dt.astimezone(_get_app_timezone())
+    return local_dt.strftime("%d/%m/%Y à %H:%M:%S")
+
+
 
 
 def load_cache():
@@ -175,20 +200,15 @@ def get_sorted_releases():
     today_releases = [r for r in dated if r["date_iso"] == today_str]
     tomorrow_releases = [r for r in dated if r["date_iso"] == tomorrow_str]
 
-    # Si rien ne sort aujourd'hui, on affiche quand même les toutes
-    # dernières sorties passées (ex: celles du 7) plutôt qu'un bloc vide —
-    # mais avec un libellé explicite pour ne pas les confondre avec de
-    # vraies sorties du jour.
-    today_is_fallback = False
-    today_fallback_label = None
-    if not today_releases and past:
-        fallback_iso = past[0]["date_iso"]
-        today_releases = [r for r in past if r["date_iso"] == fallback_iso]
-        today_is_fallback = True
-        today_fallback_label = past[0]["date_text"]
+    # Aperçu utilisé en haut à droite quand il n'y a aucune sortie
+    # aujourd'hui : on montre plutôt les toutes dernières sorties passées
+    # (ex: celles du 7), sous le libellé "Sorties récentes" plutôt que de
+    # bricoler un faux "Aujourd'hui".
+    recent_preview = past[:6]
 
     return {
         "updated_at": cache.get("updated_at"),
+        "updated_at_display": format_updated_at(cache.get("updated_at")),
         "errors": cache.get("errors", []),
         "jellyfin_enabled": jellyfin_client.is_configured(),
         "jellyfin_matched": cache.get("jellyfin_matched"),
@@ -196,9 +216,8 @@ def get_sorted_releases():
         "radarr_enabled": radarr_sonarr_client.radarr_configured(),
         "sonarr_enabled": radarr_sonarr_client.sonarr_configured(),
         "today": today_releases,
-        "today_is_fallback": today_is_fallback,
-        "today_fallback_label": today_fallback_label,
         "tomorrow": tomorrow_releases,
+        "recent_preview": recent_preview,
         "upcoming": upcoming,
         "undated": undated,
         "past": past,
@@ -221,13 +240,13 @@ def index():
     return render_template(
         "index.html",
         today=data["today"],
-        today_is_fallback=data["today_is_fallback"],
-        today_fallback_label=data["today_fallback_label"],
         tomorrow=data["tomorrow"],
+        recent_preview=data["recent_preview"],
         upcoming=data["upcoming"],
         undated=data["undated"],
         past=data["past"],
         updated_at=data["updated_at"],
+        updated_at_display=data["updated_at_display"],
         errors=data["errors"],
         jellyfin_enabled=data["jellyfin_enabled"],
         jellyfin_matched=data["jellyfin_matched"],
@@ -249,7 +268,7 @@ def api_releases():
     if category == "bluray":
         category = "bluray_dvd"
 
-    for key in ("today", "tomorrow", "upcoming", "undated", "past"):
+    for key in ("today", "tomorrow", "recent_preview", "upcoming", "undated", "past"):
         data[key] = _filter_releases(data[key], only_jellyfin, category)
 
     return jsonify(data)

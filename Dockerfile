@@ -21,6 +21,7 @@ VOLUME ["/app/data"]
 
 ENV DATA_DIR=/app/data \
     REFRESH_HOURS=6 \
+    APP_TIMEZONE=Europe/Paris \
     PORT=5000
 
 EXPOSE 5000

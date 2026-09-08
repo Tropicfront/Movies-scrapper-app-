@@ -49,15 +49,9 @@
 
 <header>
   <h1>🎬 Prochaines sorties Blu-ray &amp; 4K Ultra HD</h1>
-  <p class="subtitle">
-    Sources :
-    {% for name, url in sources %}
-      <a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a>{% if not loop.last %} &amp; {% endif %}
-    {% endfor %}
-    {% if updated_at %}
-      &middot; Dernière mise à jour : <span id="updated-at" data-utc="{{ updated_at }}">{{ updated_at }}</span>
-    {% endif %}
-  </p>
+  {% if updated_at_display %}
+    <p class="subtitle">Dernière mise à jour : <span id="updated-at">{{ updated_at_display }}</span></p>
+  {% endif %}
 
   <p class="jellyfin-status">
     {% if jellyfin_enabled %}
@@ -115,20 +109,6 @@
     </section>
 
     <div class="today-tomorrow-grid">
-      <section class="today-section">
-        {% if today_is_fallback %}
-          <h2>📅 Aujourd'hui — aucune sortie</h2>
-          <p class="fallback-note">Aucune sortie prévue aujourd'hui. Dernières sorties en date : <strong>{{ today_fallback_label }}</strong></p>
-        {% else %}
-          <h2>📅 Aujourd'hui ({{ today|length }})</h2>
-        {% endif %}
-        <div class="release-list">
-          {% for r in today %}
-            {{ release_card(r) }}
-          {% endfor %}
-        </div>
-      </section>
-
       <section class="tomorrow-section">
         <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
         {% if tomorrow %}
@@ -139,6 +119,27 @@
           </div>
         {% else %}
           <p class="fallback-note">Aucune sortie prévue demain pour l'instant.</p>
+        {% endif %}
+      </section>
+
+      <section class="today-section">
+        {% if today %}
+          <h2>📅 Aujourd'hui ({{ today|length }})</h2>
+          <div class="release-list">
+            {% for r in today %}
+              {{ release_card(r) }}
+            {% endfor %}
+          </div>
+        {% else %}
+          <h2>🕓 Sorties récentes</h2>
+          <p class="fallback-note">Aucune sortie aujourd'hui.</p>
+          {% if recent_preview %}
+            <div class="release-list">
+              {% for r in recent_preview %}
+                {{ release_card(r, show_date=True) }}
+              {% endfor %}
+            </div>
+          {% endif %}
         {% endif %}
       </section>
     </div>
