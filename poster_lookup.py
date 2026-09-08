@@ -38,8 +38,6 @@ TMDB_LANGUAGE = os.environ.get("TMDB_LANGUAGE", "fr-FR")
 TMDB_SEARCH_URL = "https://api.themoviedb.org/3/search/multi"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w342"
 TMDB_SITE_BASE = "https://www.themoviedb.org"
-TMDB_API_BASE = "https://api.themoviedb.org/3"
-IMDB_TITLE_BASE = "https://www.imdb.com/title"
 
 RETRY_NOT_FOUND_AFTER_DAYS = 7
 
@@ -64,23 +62,6 @@ def _clean_query(title):
     t = _SEASON_SUFFIX_RE.sub("", t)
     t = re.sub(r"\s{2,}", " ", t).strip(" -:")
     return t or title
-
-
-def _fetch_imdb_url(media_type, tmdb_id, timeout=10):
-    """Récupère l'IMDb ID via l'endpoint external_ids de TMDB (disponible
-    pour les films ET les séries) et construit l'URL de la fiche IMDb."""
-    try:
-        resp = requests.get(
-            f"{TMDB_API_BASE}/{media_type}/{tmdb_id}/external_ids",
-            params={"api_key": TMDB_API_KEY},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        imdb_id = resp.json().get("imdb_id")
-    except Exception:
-        logger.exception("Échec récupération external_ids TMDB pour %s/%s", media_type, tmdb_id)
-        return None
-    return f"{IMDB_TITLE_BASE}/{imdb_id}/" if imdb_id else None
 
 
 def _search_tmdb(title, timeout=10):
@@ -113,13 +94,11 @@ def _search_tmdb(title, timeout=10):
 
     candidates.sort(key=lambda r: r.get("popularity", 0), reverse=True)
     best = candidates[0]
-    imdb_url = _fetch_imdb_url(best["media_type"], best["id"], timeout=timeout)
     return {
         "poster_url": TMDB_IMAGE_BASE + best["poster_path"],
         "page_url": f"{TMDB_SITE_BASE}/{best['media_type']}/{best['id']}",
         "tmdb_id": best["id"],
         "media_type": best["media_type"],
-        "imdb_url": imdb_url,
     }
 
 
@@ -177,8 +156,6 @@ def enrich_with_posters(releases, cache_file, request_delay=0.25, search_fn=_sea
         if entry and entry.get("found"):
             r["poster_url"] = entry["poster_url"]
             r["poster_page_url"] = entry["page_url"]
-            if entry.get("imdb_url"):
-                r["imdb_url"] = entry["imdb_url"]
 
     if changed:
         _save_cache(cache_file, cache)

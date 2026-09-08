@@ -10,7 +10,6 @@ from flask import Flask, Response, jsonify, render_template, request
 import calendar_feed
 import jellyfin_client
 import poster_lookup
-import radarr_sonarr_client
 import scraper_4k
 import scraper_editionlimitee
 from date_utils import format_date_label, normalize_title
@@ -55,8 +54,6 @@ def format_updated_at(iso_str):
         return iso_str
     local_dt = dt.astimezone(_get_app_timezone())
     return local_dt.strftime("%d/%m/%Y à %H:%M:%S")
-
-
 
 
 def load_cache():
@@ -131,22 +128,6 @@ def refresh_data():
             logger.exception("Échec de la récupération des affiches TMDB")
             errors.append(f"TMDB : {exc}")
 
-    if radarr_sonarr_client.is_configured():
-        try:
-            radarr_titles = radarr_sonarr_client.fetch_radarr_titles()
-            sonarr_titles = radarr_sonarr_client.fetch_sonarr_titles()
-            releases = radarr_sonarr_client.annotate_with_libraries(releases, radarr_titles, sonarr_titles)
-        except Exception as exc:
-            logger.exception("Échec de la connexion à Radarr/Sonarr")
-            errors.append(f"Radarr/Sonarr : {exc}")
-            for r in releases:
-                r.setdefault("in_radarr", False)
-                r.setdefault("in_sonarr", False)
-    else:
-        for r in releases:
-            r["in_radarr"] = False
-            r["in_sonarr"] = False
-
     jellyfin_matched = None
     if jellyfin_client.is_configured():
         try:
@@ -200,12 +181,6 @@ def get_sorted_releases():
     today_releases = [r for r in dated if r["date_iso"] == today_str]
     tomorrow_releases = [r for r in dated if r["date_iso"] == tomorrow_str]
 
-    # Aperçu utilisé en haut à droite quand il n'y a aucune sortie
-    # aujourd'hui : on montre plutôt les toutes dernières sorties passées
-    # (ex: celles du 7), sous le libellé "Sorties récentes" plutôt que de
-    # bricoler un faux "Aujourd'hui".
-    recent_preview = past[:6]
-
     return {
         "updated_at": cache.get("updated_at"),
         "updated_at_display": format_updated_at(cache.get("updated_at")),
@@ -213,11 +188,8 @@ def get_sorted_releases():
         "jellyfin_enabled": jellyfin_client.is_configured(),
         "jellyfin_matched": cache.get("jellyfin_matched"),
         "tmdb_enabled": poster_lookup.is_configured(),
-        "radarr_enabled": radarr_sonarr_client.radarr_configured(),
-        "sonarr_enabled": radarr_sonarr_client.sonarr_configured(),
         "today": today_releases,
         "tomorrow": tomorrow_releases,
-        "recent_preview": recent_preview,
         "upcoming": upcoming,
         "undated": undated,
         "past": past,
@@ -241,7 +213,6 @@ def index():
         "index.html",
         today=data["today"],
         tomorrow=data["tomorrow"],
-        recent_preview=data["recent_preview"],
         upcoming=data["upcoming"],
         undated=data["undated"],
         past=data["past"],
@@ -251,8 +222,6 @@ def index():
         jellyfin_enabled=data["jellyfin_enabled"],
         jellyfin_matched=data["jellyfin_matched"],
         tmdb_enabled=data["tmdb_enabled"],
-        radarr_enabled=data["radarr_enabled"],
-        sonarr_enabled=data["sonarr_enabled"],
         sources=[
             ("4K-Ultra-HD.fr", "https://4k-ultra-hd.fr/prochaines-sorties-blu-ray-4k-ultra-hd"),
             ("Édition-Limitée.fr", "https://edition-limitee.fr/blu-ray-dvd/sortie-blu-ray-dvd/"),
@@ -268,7 +237,7 @@ def api_releases():
     if category == "bluray":
         category = "bluray_dvd"
 
-    for key in ("today", "tomorrow", "recent_preview", "upcoming", "undated", "past"):
+    for key in ("today", "tomorrow", "upcoming", "undated", "past"):
         data[key] = _filter_releases(data[key], only_jellyfin, category)
 
     return jsonify(data)
@@ -338,6 +307,47 @@ def calendar_ics_bluray():
     return _calendar_response(scope, only_jellyfin, "bluray_dvd")
 
 
+@app.route("/widget/upcoming")
+def widget_upcoming():
+    """Mini page compacte, pensée pour être embarquée via un widget iFrame
+    (Homarr, Homepage, ou tout autre dashboard qui supporte l'embarquement
+    d'une URL). Contrairement au flux .ics, cette page peut afficher les
+    affiches et un bouton vers la fiche TMDB, puisque ce n'est pas un
+    format calendrier mais une vraie page HTML.
+
+    Paramètres optionnels :
+      ?limit=10           -> nombre de sorties affichées (défaut : 10)
+      ?scope=upcoming      -> upcoming (défaut) / today / tomorrow / all (upcoming + récentes)
+      ?jellyfin=only       -> uniquement les films déjà présents dans Jellyfin
+      ?category=4k|bluray  -> filtrer par format
+      ?theme=dark|light    -> thème visuel (défaut : dark)
+    """
+    data = get_sorted_releases()
+    scope = request.args.get("scope", "upcoming")
+    only_jellyfin = request.args.get("jellyfin") == "only"
+    category = request.args.get("category")
+    if category == "bluray":
+        category = "bluray_dvd"
+    theme = "light" if request.args.get("theme") == "light" else "dark"
+    try:
+        limit = max(1, min(50, int(request.args.get("limit", 10))))
+    except ValueError:
+        limit = 10
+
+    if scope == "today":
+        releases = data["today"]
+    elif scope == "tomorrow":
+        releases = data["tomorrow"]
+    elif scope == "all":
+        releases = data["upcoming"] + data["past"]
+    else:
+        releases = data["upcoming"]
+
+    releases = _filter_releases(releases, only_jellyfin, category)[:limit]
+
+    return render_template("widget.html", releases=releases, theme=theme)
+
+
 @app.route("/api/jellyfin/status")
 def jellyfin_status():
     if not jellyfin_client.is_configured():
@@ -345,28 +355,6 @@ def jellyfin_status():
     try:
         titles = jellyfin_client.fetch_library_titles()
         return jsonify({"configured": True, "reachable": True, "movies_in_library": len(titles)})
-    except Exception as exc:
-        return jsonify({"configured": True, "reachable": False, "error": str(exc)}), 502
-
-
-@app.route("/api/radarr/status")
-def radarr_status():
-    if not radarr_sonarr_client.radarr_configured():
-        return jsonify({"configured": False, "message": "RADARR_URL / RADARR_API_KEY non définis"})
-    try:
-        titles = radarr_sonarr_client.fetch_radarr_titles()
-        return jsonify({"configured": True, "reachable": True, "movies_in_library": len(titles)})
-    except Exception as exc:
-        return jsonify({"configured": True, "reachable": False, "error": str(exc)}), 502
-
-
-@app.route("/api/sonarr/status")
-def sonarr_status():
-    if not radarr_sonarr_client.sonarr_configured():
-        return jsonify({"configured": False, "message": "SONARR_URL / SONARR_API_KEY non définis"})
-    try:
-        titles = radarr_sonarr_client.fetch_sonarr_titles()
-        return jsonify({"configured": True, "reachable": True, "series_in_library": len(titles)})
     except Exception as exc:
         return jsonify({"configured": True, "reachable": False, "error": str(exc)}), 502
 

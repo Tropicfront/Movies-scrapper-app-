@@ -11,10 +11,6 @@ services:
       - JELLYFIN_API_KEY=                       # clé API Jellyfin (Tableau de bord > Clés API)
       - TMDB_API_KEY=                           # clé API TMDB v3 (gratuite) pour les affiches (laisser vide pour désactiver)
       - TMDB_LANGUAGE=fr-FR                     # langue des fiches/affiches TMDB
-      - RADARR_URL=http://192.168.1.X:7878      # URL de ton instance Radarr (laisser vide pour désactiver)
-      - RADARR_API_KEY=                          # clé API Radarr (Paramètres > Général > Sécurité)
-      - SONARR_URL=http://192.168.1.X:8989      # URL de ton instance Sonarr (laisser vide pour désactiver)
-      - SONARR_API_KEY=                          # clé API Sonarr (Paramètres > Général > Sécurité)
     volumes:
       - sorties-data:/app/data
     restart: unless-stopped

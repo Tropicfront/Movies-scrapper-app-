@@ -30,8 +30,8 @@
     <div class="release-info">
       {% if show_date %}<span class="date">{{ r.date_text }}</span>{% endif %}
       <div class="title-row">
-        {% if r.imdb_url %}
-          <a href="{{ r.imdb_url }}" target="_blank" rel="noopener" class="imdb-badge" aria-label="Fiche IMDb">IMDb</a>
+        {% if r.poster_page_url %}
+          <a href="{{ r.poster_page_url }}" target="_blank" rel="noopener" class="tmdb-badge" aria-label="Fiche TMDB">TMDB</a>
         {% endif %}
         <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
       </div>
@@ -40,8 +40,6 @@
         {{ category_badge(r) }}
         <span class="source-badge">{{ r.source }}</span>
         {% if r.in_jellyfin %}<span class="jellyfin-badge">📀 Déjà dans Jellyfin</span>{% endif %}
-        {% if r.in_radarr %}<span class="radarr-badge">🎬 Déjà dans Radarr</span>{% endif %}
-        {% if r.in_sonarr %}<span class="sonarr-badge">📺 Déjà dans Sonarr</span>{% endif %}
       </div>
     </div>
   </div>
@@ -60,10 +58,6 @@
     {% else %}
       ⚪ Jellyfin non configuré
     {% endif %}
-    &middot;
-    {% if radarr_enabled %}🟢 Radarr{% else %}⚪ Radarr non configuré{% endif %}
-    &middot;
-    {% if sonarr_enabled %}🟢 Sonarr{% else %}⚪ Sonarr non configuré{% endif %}
     &middot;
     {% if tmdb_enabled %}🟢 Affiches TMDB{% else %}⚪ TMDB non configuré{% endif %}
   </p>
@@ -103,13 +97,25 @@
 
 <main>
   {% if upcoming %}
-    <section class="highlight">
-      <h2>Prochaine sortie</h2>
-      {{ release_card(upcoming[0], 'featured', show_date=True) }}
-    </section>
-
     <div class="today-tomorrow-grid">
-      <section class="tomorrow-section">
+      <section class="today-section slot-card">
+        {% if today %}
+          <h2>📅 Aujourd'hui ({{ today|length }})</h2>
+          <div class="release-list">
+            {% for r in today %}
+              {{ release_card(r) }}
+            {% endfor %}
+          </div>
+        {% else %}
+          <h2>📅 Aujourd'hui</h2>
+          <p class="fallback-note">
+            Aucune sortie aujourd'hui.
+            {% if past %}<a href="#recent-releases" class="jump-link">Voir les sorties récentes ↓</a>{% endif %}
+          </p>
+        {% endif %}
+      </section>
+
+      <section class="tomorrow-section slot-card">
         <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
         {% if tomorrow %}
           <div class="release-list">
@@ -119,27 +125,6 @@
           </div>
         {% else %}
           <p class="fallback-note">Aucune sortie prévue demain pour l'instant.</p>
-        {% endif %}
-      </section>
-
-      <section class="today-section">
-        {% if today %}
-          <h2>📅 Aujourd'hui ({{ today|length }})</h2>
-          <div class="release-list">
-            {% for r in today %}
-              {{ release_card(r) }}
-            {% endfor %}
-          </div>
-        {% else %}
-          <h2>🕓 Sorties récentes</h2>
-          <p class="fallback-note">Aucune sortie aujourd'hui.</p>
-          {% if recent_preview %}
-            <div class="release-list">
-              {% for r in recent_preview %}
-                {{ release_card(r, show_date=True) }}
-              {% endfor %}
-            </div>
-          {% endif %}
         {% endif %}
       </section>
     </div>
@@ -173,7 +158,7 @@
   {% endif %}
 
   {% if past %}
-    <section class="past">
+    <section class="past" id="recent-releases">
       <h2>Sorties récentes</h2>
       <div class="release-list">
         {% for r in past %}

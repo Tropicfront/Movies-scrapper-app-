@@ -118,10 +118,6 @@ def build_ics(releases):
             description_parts.append(f"Source : {r['source']}")
         if r.get("in_jellyfin"):
             description_parts.append("Déjà présent dans ta bibliothèque Jellyfin")
-        if r.get("in_radarr"):
-            description_parts.append("Déjà suivi dans Radarr")
-        if r.get("in_sonarr"):
-            description_parts.append("Déjà suivi dans Sonarr")
         if r.get("poster_page_url"):
             description_parts.append(f"Fiche : {r['poster_page_url']}")
         if description_parts:
