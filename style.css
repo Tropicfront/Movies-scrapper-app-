@@ -138,6 +138,9 @@ h2 {
   margin-bottom: 16px;
 }
 
+.today-section h2 { border-left-color: #6fdc7a; }
+.tomorrow-section h2 { border-left-color: var(--accent-2); }
+
 .highlight .release-card.featured {
   background: linear-gradient(135deg, #2a2410, #1a1d24);
   border: 1px solid var(--accent);

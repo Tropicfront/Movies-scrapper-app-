@@ -109,6 +109,28 @@
       {{ release_card(upcoming[0], 'featured', show_date=True) }}
     </section>
 
+    {% if today %}
+    <section class="today-section">
+      <h2>📅 Aujourd'hui ({{ today|length }})</h2>
+      <div class="release-list">
+        {% for r in today %}
+          {{ release_card(r) }}
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if tomorrow %}
+    <section class="tomorrow-section">
+      <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
+      <div class="release-list">
+        {% for r in tomorrow %}
+          {{ release_card(r) }}
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
     <section>
       <h2>Toutes les prochaines sorties ({{ upcoming|length }})</h2>
       <div class="release-list" id="upcoming-list">

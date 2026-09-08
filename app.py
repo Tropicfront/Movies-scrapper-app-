@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, jsonify, render_template, request
@@ -12,7 +12,7 @@ import poster_lookup
 import radarr_sonarr_client
 import scraper_4k
 import scraper_editionlimitee
-from date_utils import normalize_title
+from date_utils import format_date_label, normalize_title
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -158,9 +158,22 @@ def get_sorted_releases():
     dated = sorted([r for r in releases if r.get("date_iso")], key=sort_key)
     undated = [r for r in releases if not r.get("date_iso")]
 
-    today = date.today().isoformat()
-    upcoming = [r for r in dated if r["date_iso"] >= today]
-    past = list(reversed([r for r in dated if r["date_iso"] < today]))[:30]
+    # Normalise le libellé de date affiché même pour les données déjà en
+    # cache (scrapées avant ce correctif) : sans ça, "9 septembre 2026" et
+    # "9 Septembre 2026" (une par site) créent deux sections au lieu d'une
+    # seule dans la liste groupée par jour.
+    for r in dated:
+        label = format_date_label(r.get("date_iso"))
+        if label:
+            r["date_text"] = label
+
+    today_str = date.today().isoformat()
+    tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
+
+    upcoming = [r for r in dated if r["date_iso"] >= today_str]
+    past = list(reversed([r for r in dated if r["date_iso"] < today_str]))[:30]
+    today_releases = [r for r in dated if r["date_iso"] == today_str]
+    tomorrow_releases = [r for r in dated if r["date_iso"] == tomorrow_str]
 
     return {
         "updated_at": cache.get("updated_at"),
@@ -170,6 +183,8 @@ def get_sorted_releases():
         "tmdb_enabled": poster_lookup.is_configured(),
         "radarr_enabled": radarr_sonarr_client.radarr_configured(),
         "sonarr_enabled": radarr_sonarr_client.sonarr_configured(),
+        "today": today_releases,
+        "tomorrow": tomorrow_releases,
         "upcoming": upcoming,
         "undated": undated,
         "past": past,
@@ -191,6 +206,8 @@ def index():
     data = get_sorted_releases()
     return render_template(
         "index.html",
+        today=data["today"],
+        tomorrow=data["tomorrow"],
         upcoming=data["upcoming"],
         undated=data["undated"],
         past=data["past"],
@@ -216,7 +233,7 @@ def api_releases():
     if category == "bluray":
         category = "bluray_dvd"
 
-    for key in ("upcoming", "undated", "past"):
+    for key in ("today", "tomorrow", "upcoming", "undated", "past"):
         data[key] = _filter_releases(data[key], only_jellyfin, category)
 
     return jsonify(data)

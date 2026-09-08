@@ -27,6 +27,12 @@ MOIS_FR = {
     "decembre": 12, "décembre": 12,
 }
 
+# Forme canonique (pour l'affichage), utilisée quel que soit le site source
+MOIS_FR_NAMES = [
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+]
+
 # Ex: "22 juillet 2026", "1er Juillet 2026", "4 Aout 2026", "1 août 2026"
 DATE_FULL_RE = re.compile(
     r"(\d{1,2})\s*(?:er)?\s+([A-Za-zÀ-ÿ]+)\.?\s+(\d{4})",
@@ -50,6 +56,22 @@ CATEGORY_LABELS = {
     "dvd": "DVD",
     "autre": "Autre",
 }
+
+
+def format_date_label(date_iso):
+    """Formate une date ISO ('2026-09-09') en libellé français canonique
+    ('9 septembre 2026'). Utilisé pour afficher/regrouper les sorties de
+    façon uniforme, quel que soit le formatage d'origine du site source
+    (ex: 4k-ultra-hd.fr écrit '9 septembre 2026', edition-limitee.fr écrit
+    '9 Septembre 2026' avec une majuscule — sans cette normalisation, les
+    deux formulations créent deux sections séparées pour le même jour)."""
+    if not date_iso:
+        return None
+    try:
+        y, m, d = (int(part) for part in date_iso.split("-"))
+        return f"{d} {MOIS_FR_NAMES[m - 1]} {y}"
+    except (ValueError, IndexError):
+        return None
 
 
 def parse_french_date(text):
@@ -125,11 +147,16 @@ def make_release(title, url, source, date_text=None, details="", format_hint="")
     d = parse_french_date(date_text or "")
     if d:
         date_iso = d.isoformat()
+    # Une fois la date extraite, on affiche un libellé canonique plutôt que
+    # le texte brut du site (qui varie en casse/formulation d'un site à
+    # l'autre) : ça évite que "9 Septembre 2026" et "9 septembre 2026"
+    # soient traités comme deux dates différentes à l'affichage.
+    display_date = format_date_label(date_iso) if date_iso else ((date_text or "").strip() or "Date à préciser")
     return {
         "title": title.strip(),
         "url": url,
         "source": source,
-        "date_text": (date_text or "").strip() or "Date à préciser",
+        "date_text": display_date,
         "date_iso": date_iso,
         "details": details.strip(),
         "format": format_hint.strip(),

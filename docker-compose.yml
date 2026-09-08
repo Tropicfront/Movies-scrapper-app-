@@ -1,6 +1,6 @@
 services:
   sorties-films:
-    build: .
+    image: tropicfront/movies_scrapper:latest
     container_name: sorties-films
     ports:
       - "8080:5000"
