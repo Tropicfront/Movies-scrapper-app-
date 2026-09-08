@@ -102,11 +102,11 @@ Menu **Intégrations** → Ajouter → **iCal**, avec l'URL
 
 Renseigne `TMDB_API_KEY` (clé gratuite sur
 [themoviedb.org](https://www.themoviedb.org) → Paramètres → API) pour que
-chaque sortie récupère son affiche et un lien vers sa fiche TMDB. Cache
-persistant (`posters.json`), retenté tous les 7 jours pour les titres non
-trouvés. TMDB plutôt que TVDB/IMDb : API gratuite, couvre films et séries,
-fiches en français ; IMDb n'a pas d'API publique, TVDB est limité sans
-compte payant.
+chaque sortie récupère son affiche et un lien vers sa fiche TMDB. Un badge
+**IMDb** (jaune, à gauche du titre) est aussi affiché quand disponible —
+récupéré via l'endpoint `external_ids` de TMDB (pas de clé IMDb séparée
+nécessaire, IMDb n'ayant pas d'API publique). Cache persistant
+(`posters.json`), retenté tous les 7 jours pour les titres non trouvés.
 
 ## Intégrations Jellyfin / Radarr / Sonarr
 

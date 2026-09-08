@@ -29,7 +29,12 @@
     {{ poster(r) }}
     <div class="release-info">
       {% if show_date %}<span class="date">{{ r.date_text }}</span>{% endif %}
-      <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
+      <div class="title-row">
+        {% if r.imdb_url %}
+          <a href="{{ r.imdb_url }}" target="_blank" rel="noopener" class="imdb-badge" aria-label="Fiche IMDb">IMDb</a>
+        {% endif %}
+        <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
+      </div>
       <span class="details">{{ r.details }}</span>
       <div class="badges">
         {{ category_badge(r) }}
@@ -109,27 +114,34 @@
       {{ release_card(upcoming[0], 'featured', show_date=True) }}
     </section>
 
-    {% if today %}
-    <section class="today-section">
-      <h2>📅 Aujourd'hui ({{ today|length }})</h2>
-      <div class="release-list">
-        {% for r in today %}
-          {{ release_card(r) }}
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
+    <div class="today-tomorrow-grid">
+      <section class="today-section">
+        {% if today_is_fallback %}
+          <h2>📅 Aujourd'hui — aucune sortie</h2>
+          <p class="fallback-note">Aucune sortie prévue aujourd'hui. Dernières sorties en date : <strong>{{ today_fallback_label }}</strong></p>
+        {% else %}
+          <h2>📅 Aujourd'hui ({{ today|length }})</h2>
+        {% endif %}
+        <div class="release-list">
+          {% for r in today %}
+            {{ release_card(r) }}
+          {% endfor %}
+        </div>
+      </section>
 
-    {% if tomorrow %}
-    <section class="tomorrow-section">
-      <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
-      <div class="release-list">
-        {% for r in tomorrow %}
-          {{ release_card(r) }}
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
+      <section class="tomorrow-section">
+        <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
+        {% if tomorrow %}
+          <div class="release-list">
+            {% for r in tomorrow %}
+              {{ release_card(r) }}
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="fallback-note">Aucune sortie prévue demain pour l'instant.</p>
+        {% endif %}
+      </section>
+    </div>
 
     <section>
       <h2>Toutes les prochaines sorties ({{ upcoming|length }})</h2>

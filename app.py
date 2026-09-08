@@ -175,6 +175,18 @@ def get_sorted_releases():
     today_releases = [r for r in dated if r["date_iso"] == today_str]
     tomorrow_releases = [r for r in dated if r["date_iso"] == tomorrow_str]
 
+    # Si rien ne sort aujourd'hui, on affiche quand même les toutes
+    # dernières sorties passées (ex: celles du 7) plutôt qu'un bloc vide —
+    # mais avec un libellé explicite pour ne pas les confondre avec de
+    # vraies sorties du jour.
+    today_is_fallback = False
+    today_fallback_label = None
+    if not today_releases and past:
+        fallback_iso = past[0]["date_iso"]
+        today_releases = [r for r in past if r["date_iso"] == fallback_iso]
+        today_is_fallback = True
+        today_fallback_label = past[0]["date_text"]
+
     return {
         "updated_at": cache.get("updated_at"),
         "errors": cache.get("errors", []),
@@ -184,6 +196,8 @@ def get_sorted_releases():
         "radarr_enabled": radarr_sonarr_client.radarr_configured(),
         "sonarr_enabled": radarr_sonarr_client.sonarr_configured(),
         "today": today_releases,
+        "today_is_fallback": today_is_fallback,
+        "today_fallback_label": today_fallback_label,
         "tomorrow": tomorrow_releases,
         "upcoming": upcoming,
         "undated": undated,
@@ -207,6 +221,8 @@ def index():
     return render_template(
         "index.html",
         today=data["today"],
+        today_is_fallback=data["today_is_fallback"],
+        today_fallback_label=data["today_fallback_label"],
         tomorrow=data["tomorrow"],
         upcoming=data["upcoming"],
         undated=data["undated"],
