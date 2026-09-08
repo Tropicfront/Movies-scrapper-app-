@@ -8,16 +8,26 @@ from flask import Flask, Response, jsonify, render_template, request
 
 import calendar_feed
 import jellyfin_client
+import poster_lookup
 import scraper_4k
 import scraper_editionlimitee
+from date_utils import normalize_title
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
 CACHE_FILE = os.path.join(DATA_DIR, "releases.json")
+POSTER_CACHE_FILE = os.path.join(DATA_DIR, "posters.json")
 REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "6"))
 EL_MONTH_ARTICLES = int(os.environ.get("EDITION_LIMITEE_MONTH_ARTICLES", "3"))
+
+# Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
+# sources, on ne garde que celle de la source la mieux classée ici.
+SOURCE_PRIORITY = {
+    scraper_4k.SOURCE_NAME: 0,          # 4K-Ultra-HD.fr : gardé en priorité
+    scraper_editionlimitee.SOURCE_NAME: 1,
+}
 
 app = Flask(__name__)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -46,16 +56,20 @@ def save_cache(releases, errors, jellyfin_matched):
 
 
 def _dedupe(releases):
-    """Déduplique par (titre normalisé, date) en cas de chevauchement entre sources."""
+    """Déduplique par (titre normalisé, date). En cas de doublon entre
+    sources, ne garde que l'entrée de la source prioritaire (4K-Ultra-HD.fr)
+    plutôt que de fusionner les deux."""
     seen = {}
     for r in releases:
-        key = (r["title"].strip().lower(), r.get("date_iso") or r.get("date_text"))
-        if key not in seen:
+        key = (normalize_title(r.get("title", "")), r.get("date_iso") or r.get("date_text"))
+        existing = seen.get(key)
+        if existing is None:
             seen[key] = r
-        else:
-            existing = seen[key]
-            if r["source"] not in existing["source"]:
-                existing["source"] = existing["source"] + " + " + r["source"]
+            continue
+        current_rank = SOURCE_PRIORITY.get(r.get("source"), 99)
+        existing_rank = SOURCE_PRIORITY.get(existing.get("source"), 99)
+        if current_rank < existing_rank:
+            seen[key] = r
     return list(seen.values())
 
 
@@ -80,7 +94,16 @@ def refresh_data():
         logger.warning("Aucune sortie récupérée sur aucune source, le cache n'est pas modifié")
         return
 
+    before = len(releases)
     releases = _dedupe(releases)
+    logger.info("Dédoublonnage : %d -> %d sorties", before, len(releases))
+
+    if poster_lookup.is_configured():
+        try:
+            releases = poster_lookup.enrich_with_posters(releases, POSTER_CACHE_FILE)
+        except Exception as exc:
+            logger.exception("Échec de la récupération des affiches TMDB")
+            errors.append(f"TMDB : {exc}")
 
     jellyfin_matched = None
     if jellyfin_client.is_configured():
@@ -124,10 +147,21 @@ def get_sorted_releases():
         "errors": cache.get("errors", []),
         "jellyfin_enabled": jellyfin_client.is_configured(),
         "jellyfin_matched": cache.get("jellyfin_matched"),
+        "tmdb_enabled": poster_lookup.is_configured(),
         "upcoming": upcoming,
         "undated": undated,
         "past": past,
     }
+
+
+def _filter_releases(releases, only_jellyfin=False, category=None):
+    if only_jellyfin:
+        releases = [r for r in releases if r.get("in_jellyfin")]
+    if category == "4k":
+        releases = [r for r in releases if r.get("format_category") == "4k"]
+    elif category == "bluray_dvd":
+        releases = [r for r in releases if r.get("format_category") != "4k"]
+    return releases
 
 
 @app.route("/")
@@ -142,6 +176,7 @@ def index():
         errors=data["errors"],
         jellyfin_enabled=data["jellyfin_enabled"],
         jellyfin_matched=data["jellyfin_matched"],
+        tmdb_enabled=data["tmdb_enabled"],
         sources=[
             ("4K-Ultra-HD.fr", "https://4k-ultra-hd.fr/prochaines-sorties-blu-ray-4k-ultra-hd"),
             ("Édition-Limitée.fr", "https://edition-limitee.fr/blu-ray-dvd/sortie-blu-ray-dvd/"),
@@ -152,36 +187,23 @@ def index():
 @app.route("/api/releases")
 def api_releases():
     data = get_sorted_releases()
-
     only_jellyfin = request.args.get("jellyfin") == "only"
-    if only_jellyfin:
-        data["upcoming"] = [r for r in data["upcoming"] if r.get("in_jellyfin")]
-        data["undated"] = [r for r in data["undated"] if r.get("in_jellyfin")]
-        data["past"] = [r for r in data["past"] if r.get("in_jellyfin")]
+    category = request.args.get("category")  # '4k' ou 'bluray'
+    if category == "bluray":
+        category = "bluray_dvd"
+
+    for key in ("upcoming", "undated", "past"):
+        data[key] = _filter_releases(data[key], only_jellyfin, category)
 
     return jsonify(data)
 
 
-@app.route("/api/calendar.ics")
-@app.route("/calendar.ics")  # alias court, pratique à coller dans Homarr/Homepage
-def calendar_ics():
-    """Flux iCalendar (.ics) à donner à un widget calendrier (Homarr, Homepage,
-    Google/Apple/Outlook Calendar...).
-
-    Paramètres optionnels :
-      ?scope=upcoming    -> uniquement les sorties à venir (défaut)
-      ?scope=all         -> sorties à venir + historique récent (30 dernières)
-      ?jellyfin=only     -> uniquement les films déjà présents dans ta bibliothèque Jellyfin
-    """
-    scope = request.args.get("scope", "upcoming")
-    only_jellyfin = request.args.get("jellyfin") == "only"
-
+def _calendar_response(scope, only_jellyfin, category):
     data = get_sorted_releases()
     releases = list(data["upcoming"])
     if scope == "all":
         releases += data["past"]
-    if only_jellyfin:
-        releases = [r for r in releases if r.get("in_jellyfin")]
+    releases = _filter_releases(releases, only_jellyfin, category)
 
     ics_bytes = calendar_feed.build_ics(releases)
     return Response(
@@ -192,6 +214,46 @@ def calendar_ics():
             "Cache-Control": "public, max-age=1800",
         },
     )
+
+
+@app.route("/api/calendar.ics")
+@app.route("/calendar.ics")  # alias court, pratique à coller dans Homarr/Homepage
+def calendar_ics():
+    """Flux iCalendar (.ics) à donner à un widget calendrier (Homarr, Homepage,
+    Google/Apple/Outlook Calendar...).
+
+    Paramètres optionnels :
+      ?scope=upcoming     -> uniquement les sorties à venir (défaut)
+      ?scope=all          -> sorties à venir + historique récent (30 dernières)
+      ?jellyfin=only      -> uniquement les films déjà présents dans ta bibliothèque Jellyfin
+      ?category=4k        -> uniquement les sorties 4K Ultra HD
+      ?category=bluray    -> uniquement les sorties Blu-ray / DVD (non-4K)
+    """
+    scope = request.args.get("scope", "upcoming")
+    only_jellyfin = request.args.get("jellyfin") == "only"
+    category = request.args.get("category")
+    if category == "bluray":
+        category = "bluray_dvd"
+    return _calendar_response(scope, only_jellyfin, category)
+
+
+@app.route("/calendar-4k.ics")
+def calendar_ics_4k():
+    """Flux iCalendar limité aux sorties 4K Ultra HD — à ajouter comme
+    intégration séparée dans Homarr/Homepage pour lui donner sa propre
+    couleur (ces widgets colorent par flux, pas par événement)."""
+    scope = request.args.get("scope", "upcoming")
+    only_jellyfin = request.args.get("jellyfin") == "only"
+    return _calendar_response(scope, only_jellyfin, "4k")
+
+
+@app.route("/calendar-bluray.ics")
+def calendar_ics_bluray():
+    """Flux iCalendar limité aux sorties Blu-ray / DVD (tout ce qui n'est
+    pas 4K) — pendant du flux ci-dessus, à ajouter avec une autre couleur."""
+    scope = request.args.get("scope", "upcoming")
+    only_jellyfin = request.args.get("jellyfin") == "only"
+    return _calendar_response(scope, only_jellyfin, "bluray_dvd")
 
 
 @app.route("/api/jellyfin/status")

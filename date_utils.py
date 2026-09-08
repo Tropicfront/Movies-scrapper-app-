@@ -1,8 +1,10 @@
-"""Utilitaires partagés : parsing de dates en français, requêtes HTTP polies."""
+"""Utilitaires partagés : parsing de dates en français, requêtes HTTP polies,
+normalisation de titres, classification de format (4K / Blu-ray / DVD)."""
 
 import re
 import time
 import logging
+import unicodedata
 from datetime import datetime
 
 import requests
@@ -31,6 +33,24 @@ DATE_FULL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Mots à retirer pour comparer deux titres (éditions/formats/mentions qui
+# varient d'un site à l'autre mais ne changent pas le film/la série)
+_JUNK_WORDS = [
+    "edition collector", "édition collector", "collector",
+    "boitier steelbook", "boîtier steelbook", "steelbook",
+    "4k ultra hd", "ultra hd", "4k uhd", "4k",
+    "blu-ray", "bluray", "dvd",
+    "combo", "coffret", "limite", "limitee", "limitée", "limité",
+    "version longue", "director's cut", "sortie",
+]
+
+CATEGORY_LABELS = {
+    "4k": "4K Ultra HD",
+    "bluray": "Blu-ray",
+    "dvd": "DVD",
+    "autre": "Autre",
+}
+
 
 def parse_french_date(text):
     """Essaie d'extraire une date complète (jour + mois + année) d'un texte français.
@@ -49,6 +69,38 @@ def parse_french_date(text):
         return datetime(int(year), month, int(day)).date()
     except ValueError:
         return None
+
+
+def normalize_title(title):
+    """Normalise un titre pour comparaison (dédoublonnage entre sources,
+    correspondance avec la bibliothèque Jellyfin) : minuscules, sans accents,
+    sans mentions d'édition/format, sans ponctuation."""
+    if not title:
+        return ""
+    t = title.lower()
+    t = unicodedata.normalize("NFKD", t)
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    t = re.sub(r"\[[^\]]*\]", " ", t)   # retire [Blu-ray], [4K Ultra HD - Steelbook]...
+    t = re.sub(r"\([^)]*\)", " ", t)    # retire (1995), (Amores perros)...
+    for junk in _JUNK_WORDS:
+        t = t.replace(junk, " ")
+    t = re.sub(r"[^a-z0-9 ]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def classify_format(details="", format_hint=""):
+    """Classe une sortie en '4k', 'bluray', 'dvd' ou 'autre' à partir du
+    texte de détail/format scrapé. Utilisé pour l'affichage (badge coloré)
+    et pour scinder le flux calendrier en deux (4K / Blu-ray-DVD)."""
+    text = f"{details} {format_hint}".lower()
+    if "4k" in text:
+        return "4k"
+    if "blu-ray" in text or "bluray" in text:
+        return "bluray"
+    if "dvd" in text:
+        return "dvd"
+    return "autre"
 
 
 def polite_get(url, timeout=20, retries=2, delay=0.5):
@@ -81,4 +133,5 @@ def make_release(title, url, source, date_text=None, details="", format_hint="")
         "date_iso": date_iso,
         "details": details.strip(),
         "format": format_hint.strip(),
+        "format_category": classify_format(details, format_hint),
     }

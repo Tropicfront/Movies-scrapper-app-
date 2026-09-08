@@ -17,10 +17,10 @@ au titre normalisé de chaque film Jellyfin. Une comparaison approximative
 import difflib
 import logging
 import os
-import re
-import unicodedata
 
 import requests
+
+from date_utils import normalize_title as _normalize
 
 logger = logging.getLogger(__name__)
 
@@ -28,33 +28,9 @@ JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "").rstrip("/")
 JELLYFIN_API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
 FUZZY_CUTOFF = float(os.environ.get("JELLYFIN_FUZZY_CUTOFF", "0.88"))
 
-_JUNK_WORDS = [
-    "edition collector", "édition collector", "collector",
-    "boitier steelbook", "boîtier steelbook", "steelbook",
-    "4k ultra hd", "ultra hd", "4k uhd", "4k",
-    "blu-ray", "bluray", "dvd",
-    "combo", "coffret", "limite", "limitee", "limitée", "limité",
-    "version longue", "director's cut", "sortie",
-]
-
 
 def is_configured():
     return bool(JELLYFIN_URL and JELLYFIN_API_KEY)
-
-
-def _normalize(title):
-    if not title:
-        return ""
-    t = title.lower()
-    t = unicodedata.normalize("NFKD", t)
-    t = "".join(c for c in t if not unicodedata.combining(c))
-    t = re.sub(r"\[[^\]]*\]", " ", t)   # retire [Blu-ray], [4K Ultra HD - Steelbound]...
-    t = re.sub(r"\([^)]*\)", " ", t)    # retire (1995), (Amores perros)...
-    for junk in _JUNK_WORDS:
-        t = t.replace(junk, " ")
-    t = re.sub(r"[^a-z0-9 ]", " ", t)
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
 
 
 def fetch_library_titles(timeout=20):
