@@ -11,6 +11,14 @@ lecture) : on retient le dernier lien de fiche produit rencontré, puis on
 rattache la prochaine ligne "Sortie ..." trouvée à ce film. Cette méthode
 ne dépend pas de classes CSS précises, donc elle résiste mieux aux petites
 évolutions de la mise en page du site.
+
+En plus du lien vers la fiche produit du site (toujours utilisé comme
+"url" principale, ce qui garantit que les titres renvoient bien vers
+4k-ultra-hd.fr et non vers un lien affilié), on repère aussi les éventuels
+boutons d'achat affiliés présents dans le même bloc : amzn.to (Amazon) et
+tidd.ly (Fnac, raccourcisseur utilisé par ce site). Cette détection est
+best-effort : si la structure du site change, ces boutons peuvent
+simplement ne plus apparaître sans casser le reste du scraping.
 """
 
 import re
@@ -33,6 +41,12 @@ FILM_LINK_RE = re.compile(r"^https?://4k-ultra-hd\.fr/film/[^/?#]+/?$")
 SORTIE_LINE_RE = re.compile(r"^Sortie\s+(?P<date>[^:]+?)\s*:\s*(?P<details>.+)$", re.IGNORECASE)
 PAGE_LINK_RE = re.compile(r"/prochaines-sorties-blu-ray-4k-ultra-hd/page/(\d+)")
 
+# Liens affiliés trouvés à proximité de chaque fiche : amzn.to (Amazon,
+# commun aux deux sites source) et tidd.ly (le raccourcisseur de liens
+# affiliés utilisé par 4k-ultra-hd.fr pour ses liens Fnac).
+AMAZON_LINK_RE = re.compile(r"amzn\.to", re.IGNORECASE)
+FNAC_LINK_RE = re.compile(r"tidd\.ly", re.IGNORECASE)
+
 
 def _normalize_url(href):
     if href.startswith("http"):
@@ -46,6 +60,8 @@ def _extract_page(html):
     releases = []
     current_title = None
     current_url = None
+    current_amazon_url = None
+    current_fnac_url = None
     max_page = 1
 
     for node in soup.descendants:
@@ -58,6 +74,15 @@ def _extract_page(html):
                     if text:  # ignore le lien-image sans texte
                         current_title = text
                         current_url = full_href
+                        current_amazon_url = None
+                        current_fnac_url = None
+                elif current_title is not None:
+                    # Liens affiliés potentiellement présents dans le même
+                    # bloc que la fiche en cours (boutons "Acheter sur...")
+                    if not current_amazon_url and AMAZON_LINK_RE.search(href):
+                        current_amazon_url = href
+                    elif not current_fnac_url and FNAC_LINK_RE.search(href):
+                        current_fnac_url = href
                 m = PAGE_LINK_RE.search(href)
                 if m:
                     max_page = max(max_page, int(m.group(1)))
@@ -75,8 +100,11 @@ def _extract_page(html):
                     source=SOURCE_NAME,
                     date_text=m.group("date"),
                     details=m.group("details"),
+                    amazon_url=current_amazon_url,
+                    fnac_url=current_fnac_url,
                 ))
                 current_title, current_url = None, None
+                current_amazon_url, current_fnac_url = None, None
             elif text.startswith("Sortie") and node.parent is not None:
                 # La date/les infos sont parfois réparties sur plusieurs balises
                 # (ex: <strong>) dans le même bloc : on relit le texte complet du parent.
@@ -89,8 +117,11 @@ def _extract_page(html):
                         source=SOURCE_NAME,
                         date_text=m2.group("date"),
                         details=m2.group("details"),
+                        amazon_url=current_amazon_url,
+                        fnac_url=current_fnac_url,
                     ))
                     current_title, current_url = None, None
+                    current_amazon_url, current_fnac_url = None, None
 
     return releases, max_page
 
@@ -141,4 +172,4 @@ def get_releases(max_pages=6):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     for r in get_releases()[:20]:
-        print(r["date_text"], "|", r["title"], "|", r["details"])
+        print(r["date_text"], "|", r["title"], "|", r["details"], "| amazon:", r["amazon_url"], "| fnac:", r["fnac_url"])

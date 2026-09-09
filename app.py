@@ -181,6 +181,11 @@ def get_sorted_releases():
     today_releases = [r for r in dated if r["date_iso"] == today_str]
     tomorrow_releases = [r for r in dated if r["date_iso"] == tomorrow_str]
 
+    # La liste "Toutes les prochaines sorties" exclut les sorties du jour
+    # même (déjà affichées dans la section "Aujourd'hui" juste au-dessus,
+    # pas besoin de les montrer deux fois).
+    upcoming_rest = [r for r in upcoming if r["date_iso"] != today_str]
+
     return {
         "updated_at": cache.get("updated_at"),
         "updated_at_display": format_updated_at(cache.get("updated_at")),
@@ -191,6 +196,7 @@ def get_sorted_releases():
         "today": today_releases,
         "tomorrow": tomorrow_releases,
         "upcoming": upcoming,
+        "upcoming_rest": upcoming_rest,
         "undated": undated,
         "past": past,
     }
@@ -214,6 +220,7 @@ def index():
         today=data["today"],
         tomorrow=data["tomorrow"],
         upcoming=data["upcoming"],
+        upcoming_rest=data["upcoming_rest"],
         undated=data["undated"],
         past=data["past"],
         updated_at=data["updated_at"],

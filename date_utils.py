@@ -142,7 +142,8 @@ def polite_get(url, timeout=20, retries=2, delay=0.5):
     raise last_exc
 
 
-def make_release(title, url, source, date_text=None, details="", format_hint=""):
+def make_release(title, url, source, date_text=None, details="", format_hint="",
+                  amazon_url=None, fnac_url=None):
     date_iso = None
     d = parse_french_date(date_text or "")
     if d:
@@ -161,4 +162,6 @@ def make_release(title, url, source, date_text=None, details="", format_hint="")
         "details": details.strip(),
         "format": format_hint.strip(),
         "format_category": classify_format(details, format_hint),
+        "amazon_url": amazon_url,
+        "fnac_url": fnac_url,
     }

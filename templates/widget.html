@@ -51,6 +51,7 @@
     object-fit: cover;
     flex-shrink: 0;
     background: rgba(128,128,128,0.15);
+    display: block;
   }
   .poster-placeholder {
     display: flex;
@@ -69,11 +70,6 @@
     font-size: 0.68rem;
     color: var(--text-dim);
   }
-  .title-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
   .title {
     font-size: 0.85rem;
     font-weight: 600;
@@ -82,23 +78,27 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .tmdb-btn {
-    flex-shrink: 0;
-    background: #01b4e4;
-    color: #04152b;
-    font-weight: 800;
-    font-size: 0.6rem;
-    letter-spacing: 0.02em;
-    padding: 2px 5px;
-    border-radius: 4px;
-    text-decoration: none;
-    line-height: 1.3;
+    display: block;
   }
   .format {
     font-size: 0.62rem;
     color: var(--text-dim);
   }
+  .buy-row {
+    display: flex;
+    gap: 4px;
+    margin-top: 2px;
+  }
+  .buy-btn {
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-decoration: none;
+    line-height: 1.3;
+  }
+  .buy-amazon { background: #ff9900; color: #0a0c10; }
+  .buy-fnac { background: #ffd200; color: #0a0c10; }
 </style>
 </head>
 <body>
@@ -107,19 +107,22 @@
       {% for r in releases %}
         <div class="item">
           {% if r.poster_url %}
-            <img class="poster" src="{{ r.poster_url }}" loading="lazy" alt="">
+            <a href="{{ r.poster_page_url or r.url }}" target="_blank" rel="noopener">
+              <img class="poster" src="{{ r.poster_url }}" loading="lazy" alt="">
+            </a>
           {% else %}
             <span class="poster poster-placeholder" aria-hidden="true">🎬</span>
           {% endif %}
           <div class="info">
             <span class="date">{{ r.date_text }}</span>
-            <div class="title-row">
-              {% if r.poster_page_url %}
-                <a href="{{ r.poster_page_url }}" target="_blank" rel="noopener" class="tmdb-btn">TMDB</a>
-              {% endif %}
-              <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
-            </div>
+            <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
             <span class="format">{{ r.details }}</span>
+            {% if r.amazon_url or r.fnac_url %}
+              <div class="buy-row">
+                {% if r.amazon_url %}<a href="{{ r.amazon_url }}" target="_blank" rel="noopener sponsored" class="buy-btn buy-amazon">Amazon</a>{% endif %}
+                {% if r.fnac_url %}<a href="{{ r.fnac_url }}" target="_blank" rel="noopener sponsored" class="buy-btn buy-fnac">Fnac</a>{% endif %}
+              </div>
+            {% endif %}
           </div>
         </div>
       {% endfor %}

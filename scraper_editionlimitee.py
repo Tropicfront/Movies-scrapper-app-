@@ -14,6 +14,14 @@ Stratégie :
    "<Titre> [ici en <formats>](<lien>). Sorti le <date>."
    repéré ici en cherchant tous les liens dont le texte commence par
    "ici en", puis en relisant le texte complet de leur bloc parent.
+
+Le lien "ici en <formats>" pointe parfois vers la fiche du site
+edition-limitee.fr, parfois directement vers un lien affilié (Amazon,
+Fnac via awin1.com). On distingue les deux : l'URL principale ("url",
+utilisée pour le titre) pointe toujours vers edition-limitee.fr — soit la
+fiche dédiée si elle existe, soit à défaut l'article mensuel lui-même —
+tandis que les liens affiliés Amazon/Fnac repérés dans le même bloc sont
+conservés séparément pour être proposés comme boutons d'achat.
 """
 
 import re
@@ -38,6 +46,11 @@ ENTRY_RE = re.compile(
     r"(?P<title>.+?)\s*ici en\s*(?P<formats>.+?)\.\s*Sorti le\s*(?P<date>[^.]+?)\.",
     re.IGNORECASE,
 )
+
+# Liens affiliés : amzn.to (Amazon, commun aux deux sites source) et
+# awin1.com (réseau d'affiliation utilisé par ce site pour ses liens Fnac).
+AMAZON_LINK_RE = re.compile(r"amzn\.to", re.IGNORECASE)
+FNAC_LINK_RE = re.compile(r"awin1\.com", re.IGNORECASE)
 
 
 def _get_month_article_urls(limit=3):
@@ -70,7 +83,7 @@ def _get_month_article_urls(limit=3):
     return urls
 
 
-def _parse_month_article(html):
+def _parse_month_article(html, article_url):
     soup = BeautifulSoup(html, "html.parser")
     releases = []
 
@@ -95,17 +108,45 @@ def _parse_month_article(html):
         formats = m.group("formats").strip()
         date_text = m.group("date").strip()
 
-        # Le lien produit interne (fiche film) est plus utile que les liens
-        # d'affiliation Amazon ; on garde ce qu'on a
-        product_url = href if href.startswith("http") else (BASE + href if href.startswith("/") else href)
+        # Distingue lien vers le site hôte / lien Amazon / lien Fnac. On
+        # élargit la recherche au bloc englobant (p/li/div) plutôt qu'au
+        # seul parent direct du lien "ici en ...", car les boutons d'achat
+        # séparés (ex: "Fnac", "Amazon") sont parfois des liens frères,
+        # pas des enfants du même <strong>.
+        block = a.find_parent(["p", "li", "div"]) or parent
+        host_url = None
+        amazon_url = None
+        fnac_url = None
+        for link in block.find_all("a"):
+            h = link.get("href", "") or ""
+            if not h:
+                continue
+            if AMAZON_LINK_RE.search(h):
+                if not amazon_url:
+                    amazon_url = h
+            elif FNAC_LINK_RE.search(h):
+                if not fnac_url:
+                    fnac_url = h
+            elif "edition-limitee.fr" in h or h.startswith("/"):
+                if not host_url:
+                    host_url = h if h.startswith("http") else BASE + h
+
+        # Si aucun lien vers le site hôte n'a été trouvé dans le bloc (le
+        # lien "ici en ..." pointe directement vers un site affilié), on
+        # retombe sur l'article mensuel lui-même : ça reste un lien vers
+        # edition-limitee.fr, contrairement à un lien affilié.
+        if not host_url:
+            host_url = article_url
 
         releases.append(make_release(
             title=title,
-            url=product_url or None,
+            url=host_url,
             source=SOURCE_NAME,
             date_text=date_text,
             details=f"Disponible en {formats}",
             format_hint=formats,
+            amazon_url=amazon_url,
+            fnac_url=fnac_url,
         ))
 
     return releases
@@ -130,7 +171,7 @@ def get_releases(month_articles_limit=3):
         except Exception:
             logger.exception("Échec du chargement de %s", url)
             continue
-        for r in _parse_month_article(html):
+        for r in _parse_month_article(html, url):
             key = (r["title"], r["date_text"])
             if key not in seen:
                 seen.add(key)
@@ -143,4 +184,4 @@ def get_releases(month_articles_limit=3):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     for r in get_releases()[:30]:
-        print(r["date_text"], "|", r["title"], "|", r["details"])
+        print(r["date_text"], "|", r["title"], "|", r["details"], "| amazon:", r["amazon_url"], "| fnac:", r["fnac_url"])

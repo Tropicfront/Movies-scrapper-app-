@@ -29,18 +29,19 @@
     {{ poster(r) }}
     <div class="release-info">
       {% if show_date %}<span class="date">{{ r.date_text }}</span>{% endif %}
-      <div class="title-row">
-        {% if r.poster_page_url %}
-          <a href="{{ r.poster_page_url }}" target="_blank" rel="noopener" class="tmdb-badge" aria-label="Fiche TMDB">TMDB</a>
-        {% endif %}
-        <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
-      </div>
+      <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
       <span class="details">{{ r.details }}</span>
       <div class="badges">
         {{ category_badge(r) }}
         <span class="source-badge">{{ r.source }}</span>
         {% if r.in_jellyfin %}<span class="jellyfin-badge">📀 Déjà dans Jellyfin</span>{% endif %}
       </div>
+      {% if r.amazon_url or r.fnac_url %}
+        <div class="buy-buttons">
+          {% if r.amazon_url %}<a href="{{ r.amazon_url }}" target="_blank" rel="noopener sponsored" class="buy-btn buy-amazon">Amazon</a>{% endif %}
+          {% if r.fnac_url %}<a href="{{ r.fnac_url }}" target="_blank" rel="noopener sponsored" class="buy-btn buy-fnac">Fnac</a>{% endif %}
+        </div>
+      {% endif %}
     </div>
   </div>
 {% endmacro %}
@@ -76,7 +77,7 @@
       <button class="copy-ics-btn" type="button">Copier</button>
     </div>
     <details class="calendar-link-alt">
-      <summary>Ou deux flux séparés (un par format, pour les colorer différemment dans le dashboard — voir le README)</summary>
+      <summary>Ou deux flux séparés (un par format, pour avoir des couleurs différentes — voir le README)</summary>
       <div class="calendar-link-row">
         <span class="cal-dot cat-4k"></span> <code class="ics-url" data-path="/calendar-4k.ics"></code>
         <button class="copy-ics-btn" type="button">Copier</button>
@@ -97,43 +98,45 @@
 
 <main>
   {% if upcoming %}
-    <div class="today-tomorrow-grid">
-      <section class="today-section slot-card">
-        {% if today %}
-          <h2>📅 Aujourd'hui ({{ today|length }})</h2>
-          <div class="release-list">
-            {% for r in today %}
-              {{ release_card(r) }}
-            {% endfor %}
-          </div>
-        {% else %}
-          <h2>📅 Aujourd'hui</h2>
-          <p class="fallback-note">
-            Aucune sortie aujourd'hui.
-            {% if past %}<a href="#recent-releases" class="jump-link">Voir les sorties récentes ↓</a>{% endif %}
-          </p>
-        {% endif %}
-      </section>
+    <section class="today-section slot-card full-width">
+      {% if today %}
+        <h2>📅 Aujourd'hui ({{ today|length }})</h2>
+        <div class="release-list">
+          {% for r in today %}
+            {{ release_card(r) }}
+          {% endfor %}
+        </div>
+      {% else %}
+        <h2>📅 Aujourd'hui</h2>
+        <p class="fallback-note">
+          Aucune sortie aujourd'hui.
+          {% if past %}<a href="#recent-releases" class="jump-link">Voir les sorties récentes ↓</a>{% endif %}
+        </p>
+      {% endif %}
+    </section>
 
-      <section class="tomorrow-section slot-card">
+    <section class="tomorrow-section slot-card full-width">
+      {% if tomorrow %}
         <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
-        {% if tomorrow %}
-          <div class="release-list">
-            {% for r in tomorrow %}
-              {{ release_card(r) }}
-            {% endfor %}
-          </div>
-        {% else %}
-          <p class="fallback-note">Aucune sortie prévue demain pour l'instant.</p>
-        {% endif %}
-      </section>
-    </div>
+        <div class="release-list">
+          {% for r in tomorrow %}
+            {{ release_card(r) }}
+          {% endfor %}
+        </div>
+      {% else %}
+        <h2>⏭️ Demain</h2>
+        <p class="fallback-note">
+          Aucune sortie prévue demain pour l'instant.
+          {% if past %}<a href="#recent-releases" class="jump-link">Voir les sorties récentes ↓</a>{% endif %}
+        </p>
+      {% endif %}
+    </section>
 
     <section>
-      <h2>Toutes les prochaines sorties ({{ upcoming|length }})</h2>
+      <h2>Toutes les prochaines sorties ({{ upcoming_rest|length }})</h2>
       <div class="release-list" id="upcoming-list">
         {% set ns = namespace(last_date="") %}
-        {% for r in upcoming %}
+        {% for r in upcoming_rest %}
           {% if r.date_text != ns.last_date %}
             <h3 class="date-header">{{ r.date_text }}</h3>
             {% set ns.last_date = r.date_text %}
@@ -174,7 +177,7 @@
     {% for name, url in sources %}
       <a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a>{% if not loop.last %} et {% endif %}
     {% endfor %}
-    . Affiches fournies par <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDB</a>. Projet à usage personnel.
+    . Affiches fournies par <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDB</a> (cliquer sur une affiche ouvre sa fiche). Projet à usage personnel.
   </p>
 </footer>
 
