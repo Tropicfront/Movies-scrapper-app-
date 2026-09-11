@@ -142,6 +142,77 @@ def classify_format(details="", format_hint=""):
     return "autre"
 
 
+# ---------------------------------------------------------------------------
+# Détection des boutons d'achat (Amazon / Fnac)
+# ---------------------------------------------------------------------------
+# Deux pièges vérifiés sur les sites source :
+#  - Amazon n'utilise pas toujours de raccourcisseur : on trouve aussi des
+#    liens directs du type https://www.amazon.fr/dp/XXXX?tag=... (ne chercher
+#    que "amzn.to" ne trouvait donc rien sur 4k-ultra-hd.fr).
+#  - les raccourcisseurs d'affiliation (tidd.ly sur 4k-ultra-hd.fr, awin1.com
+#    sur edition-limitee.fr) servent à TOUS les marchands, Fnac comprise mais
+#    aussi Cultura ou E.Leclerc : l'URL seule ne permet pas de reconnaître le
+#    marchand.
+# On se fie donc d'abord au LIBELLÉ du lien (texte « ici sur Amazon », ou
+# alt/title du logo : « FNAC France », « AMAZON France »...), l'URL ne
+# servant que de filet.
+AMAZON_LINK_RE = re.compile(
+    r"amzn\.to|amzn\.eu|link\.amazon|amazon\.(?:fr|com|de|it|es|co\.uk)",
+    re.IGNORECASE,
+)
+FNAC_LINK_RE = re.compile(r"fnac\.com", re.IGNORECASE)
+AMAZON_LABEL_RE = re.compile(r"amazon", re.IGNORECASE)
+FNAC_LABEL_RE = re.compile(r"fnac", re.IGNORECASE)
+# Marchands à ignorer explicitement : ils partagent les raccourcisseurs
+# d'affiliation avec la Fnac et seraient sinon pris pour elle.
+OTHER_MERCHANT_LABEL_RE = re.compile(
+    r"cultura|leclerc|rakuten|cdiscount|darty|boulanger|micromania|ebay|carrefour",
+    re.IGNORECASE,
+)
+
+
+def link_label(a):
+    """Texte identifiant le marchand d'un bouton d'achat. Les boutons sont
+    tantôt du texte (« ici sur Amazon »), tantôt une simple image de logo :
+    l'information peut donc être dans le texte, le title ou l'alt."""
+    parts = [a.get("title") or "", a.get_text(" ", strip=True)]
+    for img in a.find_all("img"):
+        parts.append(img.get("alt") or "")
+        parts.append(img.get("title") or "")
+    return " ".join(parts)
+
+
+def classify_purchase_link(a):
+    """Retourne ('amazon' | 'fnac' | None, href) pour un lien <a> donné."""
+    href = a.get("href") or ""
+    if not href:
+        return None, ""
+    label = link_label(a)
+    if OTHER_MERCHANT_LABEL_RE.search(label):
+        return None, href          # Cultura, Leclerc... : on n'en fait rien
+    if AMAZON_LABEL_RE.search(label) or AMAZON_LINK_RE.search(href):
+        return "amazon", href
+    if FNAC_LABEL_RE.search(label) or FNAC_LINK_RE.search(href):
+        return "fnac", href
+    return None, href
+
+
+def extract_purchase_links(scope, amazon_url=None, fnac_url=None):
+    """Cherche un lien Amazon et un lien Fnac parmi les liens de `scope`
+    (un Tag BeautifulSoup). Les valeurs déjà connues ne sont pas écrasées."""
+    if scope is None or not hasattr(scope, "find_all"):
+        return amazon_url, fnac_url
+    for a in scope.find_all("a"):
+        kind, href = classify_purchase_link(a)
+        if kind == "amazon" and not amazon_url:
+            amazon_url = href
+        elif kind == "fnac" and not fnac_url:
+            fnac_url = href
+        if amazon_url and fnac_url:
+            break
+    return amazon_url, fnac_url
+
+
 def polite_get(url, timeout=20, retries=2, delay=0.5):
     """GET avec retries légers et pause entre les tentatives."""
     last_exc = None

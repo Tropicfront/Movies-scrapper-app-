@@ -1,6 +1,12 @@
 services:
   sorties-films:
+    # ATTENTION : cette ligne utilise l'image DÉJÀ PUBLIÉE sur Docker Hub.
+    # Tant qu'elle est active, modifier les fichiers du projet en local n'a
+    # aucun effet sur le conteneur. Pour faire tourner ton code local,
+    # commente la ligne `image:` et décommente `build: .`, puis lance
+    #     docker compose up -d --build
     image: tropicfront/movies_scrapper:latest
+    # build: .
     container_name: sorties-films
     ports:
       - "8080:5000"

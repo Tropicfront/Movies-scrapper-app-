@@ -96,6 +96,11 @@ le site source, boutons Amazon/Fnac) :
 http://<ton-serveur>:8080/widget/upcoming
 ```
 
+La grille n'affiche **aucune couleur par format** : chaque jour porte
+simplement le nombre de sorties, ce qui laisse la place à des cases et des
+chiffres plus lisibles (il n'y a donc plus de légende sous la grille). Le
+format reste indiqué, en couleur, dans la fenêtre qui s'ouvre au clic.
+
 La grille affiche **tous les jours du mois**, y compris ceux déjà passés,
 et complète chaque mois avec **les jours débordant sur les mois voisins**
 (ex. le 31 août devant le lundi 1er septembre, le 1er au 4 octobre après le
@@ -236,7 +241,22 @@ volumes:
 - `GET /api/jellyfin/status` — vérifie la connexion à Jellyfin
 - `GET /api/affiliate-links/status` — diagnostic des liens Amazon/Fnac (nombre de sorties avec/sans lien, par source)
 - `POST /api/refresh` — force un rafraîchissement immédiat
-- `GET /health` — healthcheck
+- `GET /api/debug/calendar` — diagnostic du calendrier : contenu du cache mois par mois et jour par jour, date vue par le conteneur, plage de dates couverte
+- `GET /health` — healthcheck (renvoie aussi `build`, le marqueur de version du code en cours d'exécution)
+
+## Vérifier quelle version du code tourne
+
+Le `docker-compose.yml` d'exemple utilise l'image publiée
+`tropicfront/movies_scrapper:latest` : **modifier les fichiers en local ne
+change rien au conteneur** tant que cette ligne est active. Pour faire
+tourner ton code, commente `image:`, décommente `build: .` et relance avec
+`docker compose up -d --build`.
+
+Pour confirmer ce qui tourne réellement :
+```bash
+curl http://<ton-serveur>:8080/health     # -> {"status":"ok","build":"..."}
+```
+Le même marqueur est affiché en pied de page du site.
 
 ## Persistance
 

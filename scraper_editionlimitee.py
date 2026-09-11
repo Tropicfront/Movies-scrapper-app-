@@ -28,7 +28,7 @@ import re
 import logging
 from bs4 import BeautifulSoup
 
-from date_utils import polite_get, make_release
+from date_utils import extract_purchase_links, make_release, polite_get
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +47,12 @@ ENTRY_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Liens affiliés : amzn.to (Amazon, commun aux deux sites source) et
-# awin1.com (réseau d'affiliation utilisé par ce site pour ses liens Fnac).
-AMAZON_LINK_RE = re.compile(r"amzn\.to", re.IGNORECASE)
-FNAC_LINK_RE = re.compile(r"awin1\.com", re.IGNORECASE)
+# La reconnaissance des boutons d'achat est centralisée dans
+# date_utils.classify_purchase_link. Ne chercher, comme avant, que les
+# domaines "amzn.to" et "awin1.com" ratait tous les boutons dès que le site
+# changeait de raccourcisseur ou mettait un lien Amazon direct ; le
+# classement se fait maintenant d'abord sur le libellé du lien, qui est ici
+# très explicite (« ici sur Amazon », « ici sur la fnac »).
 
 
 def _get_month_article_urls(limit=3):
@@ -100,15 +102,12 @@ def _find_purchase_links(entry_block, max_following=3):
             break
         if i > 0 and node.find(string=re.compile(r"ici en\s", re.IGNORECASE)):
             break  # on a atteint l'entrée suivante, on s'arrête là
+        amazon_url, fnac_url = extract_purchase_links(node, amazon_url, fnac_url)
         for link in node.find_all("a"):
             h = link.get("href", "") or ""
             if not h:
                 continue
-            if AMAZON_LINK_RE.search(h):
-                amazon_url = amazon_url or h
-            elif FNAC_LINK_RE.search(h):
-                fnac_url = fnac_url or h
-            elif "edition-limitee.fr" in h or h.startswith("/"):
+            if "edition-limitee.fr" in h or h.startswith("/"):
                 host_url = host_url or (h if h.startswith("http") else BASE + h)
         node = node.find_next_sibling()
     return host_url, amazon_url, fnac_url

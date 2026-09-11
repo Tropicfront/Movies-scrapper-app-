@@ -25,6 +25,11 @@ REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "6"))
 EL_MONTH_ARTICLES = int(os.environ.get("EDITION_LIMITEE_MONTH_ARTICLES", "3"))
 APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 
+# Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
+# affiché en pied de page : permet de vérifier que le conteneur tourne bien
+# avec les fichiers à jour.
+APP_BUILD = "2026-09-11.3"
+
 # Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
 # sources, on ne garde que celle de la source la mieux classée ici.
 SOURCE_PRIORITY = {
@@ -245,6 +250,7 @@ def index():
             ("4K-Ultra-HD.fr", "https://4k-ultra-hd.fr/prochaines-sorties-blu-ray-4k-ultra-hd"),
             ("Édition-Limitée.fr", "https://edition-limitee.fr/blu-ray-dvd/sortie-blu-ray-dvd/"),
         ],
+        app_build=APP_BUILD,
     )
 
 
@@ -368,9 +374,10 @@ def widget_upcoming():
         # rien avant aujourd'hui donne l'impression d'être vide).
         releases = data["dated"]
 
-    releases = _filter_releases(releases, only_jellyfin, category)[:limit]
-
     today_iso = date.today().isoformat()
+    releases = _filter_releases(releases, only_jellyfin, category)
+    releases = _cap_releases(releases, limit, today_iso)
+
     months, active_index = _build_calendar_months(releases, today_iso)
 
     return render_template(
@@ -384,6 +391,28 @@ def widget_upcoming():
 
 # Ordre d'affichage des sorties à l'intérieur d'une même journée
 _CATEGORY_ORDER = {"4k": 0, "bluray": 1, "dvd": 2, "autre": 3}
+
+
+def _cap_releases(releases, limit, today_iso):
+    """Ramène la liste à `limit` entrées SANS sacrifier les sorties à venir.
+
+    Les sorties arrivent triées du plus ancien au plus récent : une simple
+    troncature `[:limit]` couperait donc tous les mois futurs (symptôme :
+    un calendrier qui s'arrête au mois en cours, avec la flèche « mois
+    suivant » grisée alors qu'il reste des sorties après). On garde d'abord
+    tout ce qui est à venir, puis on complète avec le passé le plus récent.
+    """
+    if len(releases) <= limit:
+        return releases
+
+    upcoming = [r for r in releases if (r.get("date_iso") or "") >= today_iso]
+    past = [r for r in releases if (r.get("date_iso") or "") < today_iso]
+
+    kept = upcoming[:limit]
+    room_left = limit - len(kept)
+    if room_left > 0:
+        kept = past[-room_left:] + kept
+    return kept
 
 
 def _build_calendar_months(releases, today_iso=None):
@@ -424,6 +453,18 @@ def _build_calendar_months(releases, today_iso=None):
         return [], 0
 
     first, last = min(bounds), max(bounds)
+
+    # Garde-fou : une seule date mal parsée (année aberrante) suffirait sinon
+    # à générer des centaines de mois vides et à rendre la navigation
+    # inutilisable. On borne la plage autour du mois en cours.
+    if today_iso:
+        ty, tm = _year_month(today_iso)
+        floor = (ty - 1, tm)
+        ceiling = (ty + 3, tm)
+        first = max(first, floor)
+        last = min(last, ceiling)
+        if first > last:
+            first = last = (ty, tm)
 
     ordered_months = []
     y, m = first
@@ -502,6 +543,42 @@ def affiliate_links_status():
     return jsonify({"total_releases": len(releases), "by_source": by_source})
 
 
+@app.route("/api/calendar/debug")
+def calendar_debug():
+    """Diagnostic du calendrier : ce que contient réellement le cache, mois
+    par mois. À appeler quand la grille du widget paraît vide ou s'arrête
+    trop tôt, pour distinguer un problème d'affichage d'un problème de
+    scraping (mois réellement absent des données).
+
+        curl http://<ton-serveur>:8080/api/calendar/debug
+    """
+    data = get_sorted_releases()
+    dated = data["dated"]
+    undated = data["undated"]
+
+    by_month = {}
+    for r in dated:
+        key = r["date_iso"][:7]
+        stats = by_month.setdefault(key, {"total": 0, "by_source": {}, "by_format": {}})
+        stats["total"] += 1
+        source = r.get("source", "inconnu")
+        stats["by_source"][source] = stats["by_source"].get(source, 0) + 1
+        cat = r.get("format_category", "autre")
+        stats["by_format"][cat] = stats["by_format"].get(cat, 0) + 1
+
+    return jsonify({
+        "today": date.today().isoformat(),
+        "updated_at": data["updated_at"],
+        "errors": data["errors"],
+        "dated_releases": len(dated),
+        "undated_releases": len(undated),
+        "first_date": dated[0]["date_iso"] if dated else None,
+        "last_date": dated[-1]["date_iso"] if dated else None,
+        "months": {k: by_month[k] for k in sorted(by_month)},
+        "undated_examples": [r.get("title") for r in undated[:10]],
+    })
+
+
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
     refresh_data()
@@ -514,9 +591,57 @@ def api_refresh():
     })
 
 
+@app.route("/api/debug/calendar")
+def debug_calendar():
+    """Diagnostic du calendrier : dit exactement ce que contient le cache,
+    mois par mois. Sert à distinguer « le scraping n'a rien trouvé pour ce
+    mois-là » de « les données sont là mais la grille ne les affiche pas ».
+
+        curl http://<ton-serveur>:8080/api/debug/calendar
+    """
+    cache = load_cache()
+    releases = cache.get("releases", [])
+    today_iso = date.today().isoformat()
+
+    by_month = {}
+    for r in releases:
+        date_iso = r.get("date_iso")
+        key = date_iso[:7] if date_iso else "sans-date"
+        stats = by_month.setdefault(key, {"total": 0, "par_source": {}, "jours": {}})
+        stats["total"] += 1
+        source = r.get("source", "inconnu")
+        stats["par_source"][source] = stats["par_source"].get(source, 0) + 1
+        if date_iso:
+            stats["jours"][date_iso[8:]] = stats["jours"].get(date_iso[8:], 0) + 1
+
+    for stats in by_month.values():
+        stats["jours"] = dict(sorted(stats["jours"].items()))
+
+    dated = [r for r in releases if r.get("date_iso")]
+    return jsonify({
+        "build": APP_BUILD,
+        "updated_at": cache.get("updated_at"),
+        "errors": cache.get("errors", []),
+        # Date vue par le CONTENEUR : si elle ne correspond pas à ta date
+        # locale, le découpage aujourd'hui/demain et le mois ouvert par
+        # défaut seront décalés (voir la variable TZ du conteneur).
+        "today_in_container": today_iso,
+        "total": len(releases),
+        "avec_date": len(dated),
+        "sans_date": len(releases) - len(dated),
+        "premiere_date": min((r["date_iso"] for r in dated), default=None),
+        "derniere_date": max((r["date_iso"] for r in dated), default=None),
+        "par_mois": dict(sorted(by_month.items())),
+    })
+
+
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok"})
+    # `build` permet de vérifier d'un coup d'œil quelle version du code
+    # tourne réellement dans le conteneur (utile car le docker-compose
+    # d'exemple utilise une image publiée : sans rebuild, modifier les
+    # fichiers en local ne change rien).
+    return jsonify({"status": "ok", "build": APP_BUILD})
 
 
 def start_scheduler():
