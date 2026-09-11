@@ -134,7 +134,7 @@
 
     <section>
       <h2>Toutes les prochaines sorties ({{ upcoming_rest|length }})</h2>
-      <div class="release-list" id="upcoming-list">
+      <div class="release-list stacked" id="upcoming-list">
         {% set ns = namespace(last_date="") %}
         {% for r in upcoming_rest %}
           {% if r.date_text != ns.last_date %}
@@ -152,7 +152,7 @@
   {% if undated %}
     <section class="undated">
       <h2>Annoncées, date à préciser ({{ undated|length }})</h2>
-      <div class="release-list">
+      <div class="release-list stacked">
         {% for r in undated %}
           {{ release_card(r, show_date=True) }}
         {% endfor %}
@@ -163,7 +163,7 @@
   {% if past %}
     <section class="past" id="recent-releases">
       <h2>Sorties récentes</h2>
-      <div class="release-list">
+      <div class="release-list stacked">
         {% for r in past %}
           {{ release_card(r, 'past-card', show_date=True) }}
         {% endfor %}

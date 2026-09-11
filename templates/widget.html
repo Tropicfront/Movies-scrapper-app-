@@ -12,7 +12,10 @@
     --text: {{ '#16181d' if theme == 'light' else '#e8e8ec' }};
     --text-dim: {{ '#6b7280' if theme == 'light' else '#9096a3' }};
     --accent: #e8b64c;
+    --accent-2: #4c9be8;
     --today-bg: {{ '#fff6e0' if theme == 'light' else '#2a2410' }};
+    --modal-bg: {{ '#ffffff' if theme == 'light' else '#14171d' }};
+    --backdrop: {{ 'rgba(255,255,255,0.75)' if theme == 'light' else 'rgba(0,0,0,0.72)' }};
   }
   * { box-sizing: border-box; }
   html, body {
@@ -29,41 +32,44 @@
     text-align: center;
     padding: 24px 0;
   }
-  .month {
-    display: none;
-  }
-  .month.active { display: block; }
-  .month-header {
+
+  /* ---------- En-tête + navigation entre les mois ---------- */
+  .cal-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
     margin-bottom: 10px;
   }
   .month-title {
     font-size: 0.95rem;
     font-weight: 700;
     text-transform: capitalize;
+    text-align: center;
+    flex: 1;
   }
   .nav-btn {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     color: var(--text);
     border-radius: 6px;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 1rem;
     line-height: 1;
   }
+  .nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* ---------- Grille du mois ---------- */
   .weekdays, .week {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     gap: 3px;
   }
-  .weekdays {
-    margin-bottom: 4px;
-  }
+  .weekdays { margin-bottom: 4px; }
   .weekdays span {
     text-align: center;
     font-size: 0.62rem;
@@ -71,6 +77,8 @@
     color: var(--text-dim);
     letter-spacing: 0.03em;
   }
+  .month { display: none; }
+  .month.active { display: block; }
   .week { margin-bottom: 3px; }
   .day-cell {
     aspect-ratio: 1 / 1;
@@ -83,9 +91,9 @@
     align-items: center;
     justify-content: center;
     gap: 2px;
-    position: relative;
   }
-  .day-cell.empty-cell { background: transparent; border-color: transparent; }
+  /* Jours qui débordent sur le mois précédent / suivant : visibles mais estompés */
+  .day-cell.out-month { opacity: 0.4; }
   .day-cell.today { background: var(--today-bg); border-color: var(--accent); }
   .day-cell .day-num {
     font-size: 0.72rem;
@@ -93,14 +101,14 @@
     color: var(--text);
   }
   .day-cell.today .day-num { color: var(--accent); font-weight: 800; }
-  .dots {
-    display: flex;
-    gap: 2px;
-  }
+  .day-cell.has-releases { cursor: pointer; }
+  .day-cell.has-releases:hover { border-color: var(--accent-2); }
+  .dots { display: flex; gap: 2px; }
   .dot {
     width: 5px;
     height: 5px;
     border-radius: 50%;
+    flex-shrink: 0;
   }
   .dot.cat-4k     { background: #9b59f6; }
   .dot.cat-bluray { background: #4c9be8; }
@@ -115,127 +123,302 @@
     color: var(--text-dim);
   }
   .legend span { display: flex; align-items: center; gap: 4px; }
+  .day-data { display: none; }
 
-  /* Popover listant les sorties d'un jour, affiché au clic */
-  .day-popover {
-    position: absolute;
-    z-index: 10;
-    top: calc(100% + 4px);
-    left: 0;
-    min-width: 180px;
-    max-width: 240px;
-    background: var(--card-bg);
-    border: 1px solid var(--accent);
-    border-radius: 8px;
-    padding: 8px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  /* ---------- Fenêtre des sorties du jour (clic sur une case) ---------- */
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: var(--backdrop);
     display: none;
+    padding: 8px;
+    overflow: auto;
   }
-  .day-cell.has-releases { cursor: pointer; }
-  .day-popover.open { display: block; }
-  .popover-item {
+  .backdrop.open { display: block; }
+  .modal {
+    background: var(--modal-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+    max-width: 720px;
+    margin: 0 auto;
+    overflow: hidden;
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--card-border);
+    position: sticky;
+    top: 0;
+    background: var(--modal-bg);
+  }
+  .modal-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-transform: capitalize;
+  }
+  .modal-count {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .modal-close {
+    background: transparent;
+    border: 1px solid var(--card-border);
+    color: var(--text);
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+  }
+  .modal-close:hover { border-color: #e85c5c; color: #e85c5c; }
+  .modal-body { padding: 6px 0; }
+
+  .ev {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--card-border);
+    border-left: 3px solid transparent;
+  }
+  .ev:last-child { border-bottom: none; }
+  .ev[data-category="4k"]     { border-left-color: #9b59f6; }
+  .ev[data-category="bluray"] { border-left-color: #4c9be8; }
+  .ev[data-category="dvd"]    { border-left-color: #e85c5c; }
+  .ev-poster {
+    width: 62px;
+    height: 92px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: {{ '#e6e8ec' if theme == 'light' else '#0a0c10' }};
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    font-size: 1.4rem;
+    color: var(--text-dim);
+    border: 1px solid var(--card-border);
+  }
+  .ev-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ev-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    flex: 1;
+  }
+  .ev-title {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 0;
-    text-decoration: none;
+    font-size: 0.88rem;
+    font-weight: 700;
     color: var(--text);
-    border-bottom: 1px solid var(--card-border);
-    font-size: 0.7rem;
+    text-decoration: none;
+    line-height: 1.3;
   }
-  .popover-item:last-child { border-bottom: none; }
-  .popover-item img {
-    width: 20px;
-    height: 28px;
-    object-fit: cover;
-    border-radius: 3px;
-    flex-shrink: 0;
+  .ev-title:hover { color: var(--accent-2); text-decoration: underline; }
+  .ev-details {
+    font-size: 0.74rem;
+    color: var(--text-dim);
+    line-height: 1.35;
   }
+  .ev-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+  .badge {
+    font-size: 0.64rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.cat-4k     { background: #3a2a5c; color: #c9a9ff; }
+  .badge.cat-bluray { background: #1c3a5c; color: #9ecbff; }
+  .badge.cat-dvd    { background: #3a1c1c; color: #ffb3b3; }
+  .badge.cat-autre  { background: #2a2e38; color: #ccc; }
+  .badge.src        { background: #263042; color: #8fb8e8; font-weight: 600; }
+  .badge.jf         { background: #22331f; color: #a3d977; font-weight: 600; }
+  .ev-buy { display: flex; gap: 6px; margin-top: 1px; }
+  .buy-btn {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 6px;
+    text-decoration: none;
+    line-height: 1.4;
+  }
+  .buy-amazon { background: #ff9900; color: #0a0c10; }
+  .buy-fnac   { background: #ffd200; color: #0a0c10; }
+  .buy-btn:hover { opacity: 0.85; }
 </style>
 </head>
 <body>
-  {% if months %}
-    {% for month in months %}
-      <div class="month {{ 'active' if loop.first else '' }}" data-index="{{ loop.index0 }}">
-        <div class="month-header">
-          <button class="nav-btn prev-btn" type="button" {{ 'disabled' if loop.first else '' }}>&lsaquo;</button>
-          <span class="month-title">{{ month.label }}</span>
-          <button class="nav-btn next-btn" type="button" {{ 'disabled' if loop.last else '' }}>&rsaquo;</button>
+
+{% set CAT_LABELS = {'4k': '4K Ultra HD', 'bluray': 'Blu-ray', 'dvd': 'DVD'} %}
+
+{% macro event_item(r) %}
+  {% set cat = r.format_category or 'autre' %}
+  <div class="ev" data-category="{{ cat }}">
+    <a class="ev-poster" href="{{ r.poster_page_url or r.url }}" target="_blank" rel="noopener">
+      {% if r.poster_url %}
+        {# data-src plutôt que src : les affiches ne sont téléchargées qu'au
+           moment où la fenêtre du jour est ouverte (le widget contient le
+           détail de tous les jours du mois, ça éviterait sinon des centaines
+           de requêtes TMDB à chaque chargement du dashboard). #}
+        <img data-src="{{ r.poster_url }}" alt="Affiche de {{ r.title }}">
+      {% else %}
+        🎬
+      {% endif %}
+    </a>
+    <div class="ev-info">
+      <a class="ev-title" href="{{ r.url }}" target="_blank" rel="noopener">
+        <span class="dot cat-{{ cat }}"></span>{{ r.title }}
+      </a>
+      {% if r.details %}<div class="ev-details">{{ r.details }}</div>{% endif %}
+      <div class="ev-badges">
+        <span class="badge cat-{{ cat }}">{{ CAT_LABELS.get(cat, 'Autre') }}</span>
+        {% if r.source %}<span class="badge src">{{ r.source }}</span>{% endif %}
+        {% if r.in_jellyfin %}<span class="badge jf">📀 Déjà dans Jellyfin</span>{% endif %}
+      </div>
+      {% if r.amazon_url or r.fnac_url %}
+        <div class="ev-buy">
+          {% if r.amazon_url %}<a class="buy-btn buy-amazon" href="{{ r.amazon_url }}" target="_blank" rel="noopener sponsored">Amazon</a>{% endif %}
+          {% if r.fnac_url %}<a class="buy-btn buy-fnac" href="{{ r.fnac_url }}" target="_blank" rel="noopener sponsored">Fnac</a>{% endif %}
         </div>
-        <div class="weekdays">
-          <span>Lu</span><span>Ma</span><span>Me</span><span>Je</span><span>Ve</span><span>Sa</span><span>Di</span>
-        </div>
-        {% for week in month.weeks %}
-          <div class="week">
-            {% for cell in week %}
-              {% if cell is none %}
-                <div class="day-cell empty-cell"></div>
-              {% else %}
-                <div class="day-cell {{ 'today' if cell.date_iso == today_iso else '' }} {{ 'has-releases' if cell.releases else '' }}">
-                  <span class="day-num">{{ cell.day_num }}</span>
-                  {% if cell.categories %}
-                    <div class="dots">
-                      {% for cat in cell.categories %}
-                        <span class="dot cat-{{ cat }}"></span>
-                      {% endfor %}
-                    </div>
-                  {% endif %}
-                  {% if cell.releases %}
-                    <div class="day-popover">
-                      {% for r in cell.releases %}
-                        <a href="{{ r.url }}" target="_blank" rel="noopener" class="popover-item">
-                          {% if r.poster_url %}<img src="{{ r.poster_url }}" loading="lazy" alt="">{% endif %}
-                          <span>{{ r.title }}</span>
-                        </a>
-                      {% endfor %}
-                    </div>
-                  {% endif %}
+      {% endif %}
+    </div>
+  </div>
+{% endmacro %}
+
+{% if months %}
+  <div class="cal-header">
+    <button class="nav-btn" id="prev-btn" type="button" aria-label="Mois précédent">&lsaquo;</button>
+    <span class="month-title" id="month-title"></span>
+    <button class="nav-btn" id="next-btn" type="button" aria-label="Mois suivant">&rsaquo;</button>
+  </div>
+
+  <div class="weekdays">
+    <span>Lu</span><span>Ma</span><span>Me</span><span>Je</span><span>Ve</span><span>Sa</span><span>Di</span>
+  </div>
+
+  {% for month in months %}
+    <div class="month {{ 'active' if loop.index0 == active_index else '' }}"
+         data-index="{{ loop.index0 }}" data-label="{{ month.label }}">
+      {% for week in month.weeks %}
+        <div class="week">
+          {% for cell in week %}
+            <div class="day-cell {{ '' if cell.in_month else 'out-month' }} {{ 'today' if cell.date_iso == today_iso else '' }} {{ 'has-releases' if cell.releases else '' }}"
+                 data-label="{{ cell.label }}"
+                 data-count="{{ cell.releases|length }}">
+              <span class="day-num">{{ cell.day_num }}</span>
+              {% if cell.categories %}
+                <div class="dots">
+                  {% for cat in cell.categories %}<span class="dot cat-{{ cat }}"></span>{% endfor %}
                 </div>
               {% endif %}
-            {% endfor %}
-          </div>
-        {% endfor %}
-      </div>
-    {% endfor %}
-    <div class="legend">
-      <span><span class="dot cat-4k"></span> 4K</span>
-      <span><span class="dot cat-bluray"></span> Blu-ray</span>
-      <span><span class="dot cat-dvd"></span> DVD</span>
+              {% if cell.releases %}
+                <div class="day-data">
+                  {% for r in cell.releases %}{{ event_item(r) }}{% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
     </div>
-  {% else %}
-    <p class="empty">Aucune sortie à afficher.</p>
-  {% endif %}
+  {% endfor %}
+
+  <div class="legend">
+    <span><span class="dot cat-4k"></span> 4K</span>
+    <span><span class="dot cat-bluray"></span> Blu-ray</span>
+    <span><span class="dot cat-dvd"></span> DVD</span>
+  </div>
+
+  <div class="backdrop" id="backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="modal-title"></div>
+          <div class="modal-count" id="modal-count"></div>
+        </div>
+        <button class="modal-close" id="modal-close" type="button" aria-label="Fermer">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+{% else %}
+  <p class="empty">Aucune sortie à afficher.</p>
+{% endif %}
 
 <script>
 (function () {
-  const months = document.querySelectorAll('.month');
-  let current = 0;
-  months.forEach((m, i) => { if (m.classList.contains('active')) current = i; });
+  const months = Array.from(document.querySelectorAll('.month'));
+  if (!months.length) return;
+
+  const title = document.getElementById('month-title');
+  const prevBtn = document.getElementById('prev-btn');
+  const nextBtn = document.getElementById('next-btn');
+
+  let current = months.findIndex(m => m.classList.contains('active'));
+  if (current < 0) current = 0;
 
   function show(index) {
-    months.forEach((m, i) => m.classList.toggle('active', i === index));
-    current = index;
+    current = Math.max(0, Math.min(months.length - 1, index));
+    months.forEach((m, i) => m.classList.toggle('active', i === current));
+    title.textContent = months[current].dataset.label || '';
+    prevBtn.disabled = current === 0;
+    nextBtn.disabled = current === months.length - 1;
   }
 
-  document.querySelectorAll('.prev-btn').forEach(btn => {
-    btn.addEventListener('click', () => { if (current > 0) show(current - 1); });
-  });
-  document.querySelectorAll('.next-btn').forEach(btn => {
-    btn.addEventListener('click', () => { if (current < months.length - 1) show(current + 1); });
+  prevBtn.addEventListener('click', () => show(current - 1));
+  nextBtn.addEventListener('click', () => show(current + 1));
+  show(current);
+
+  // ---- Fenêtre des sorties d'un jour ----
+  const backdrop = document.getElementById('backdrop');
+  const modalTitle = document.getElementById('modal-title');
+  const modalCount = document.getElementById('modal-count');
+  const modalBody = document.getElementById('modal-body');
+
+  function openDay(cell) {
+    const data = cell.querySelector('.day-data');
+    if (!data) return;
+    const count = parseInt(cell.dataset.count || '0', 10);
+    modalTitle.textContent = cell.dataset.label || '';
+    modalCount.textContent = count + (count > 1 ? ' sorties' : ' sortie');
+    modalBody.innerHTML = data.innerHTML;
+    modalBody.querySelectorAll('img[data-src]').forEach(img => {
+      img.src = img.dataset.src;
+      img.removeAttribute('data-src');
+    });
+    backdrop.classList.add('open');
+    backdrop.scrollTop = 0;
+  }
+
+  function closeDay() {
+    backdrop.classList.remove('open');
+    modalBody.innerHTML = '';
+  }
+
+  document.querySelectorAll('.day-cell.has-releases').forEach(cell => {
+    cell.addEventListener('click', () => openDay(cell));
   });
 
-  // Ouvre/ferme le popover listant les sorties du jour au clic
-  document.querySelectorAll('.day-cell.has-releases').forEach(cell => {
-    cell.addEventListener('click', (e) => {
-      const popover = cell.querySelector('.day-popover');
-      const wasOpen = popover.classList.contains('open');
-      document.querySelectorAll('.day-popover.open').forEach(p => p.classList.remove('open'));
-      if (!wasOpen) popover.classList.add('open');
-      e.stopPropagation();
-    });
-  });
-  document.addEventListener('click', () => {
-    document.querySelectorAll('.day-popover.open').forEach(p => p.classList.remove('open'));
+  document.getElementById('modal-close').addEventListener('click', closeDay);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeDay(); });
+  document.addEventListener('keydown', (e) => {
+    const modalOpen = backdrop.classList.contains('open');
+    if (e.key === 'Escape') closeDay();
+    else if (modalOpen) return;  // les flèches ne changent pas de mois derrière la fenêtre
+    else if (e.key === 'ArrowLeft') show(current - 1);
+    else if (e.key === 'ArrowRight') show(current + 1);
   });
 })();
 </script>

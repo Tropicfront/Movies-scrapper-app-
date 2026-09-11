@@ -200,6 +200,11 @@ def get_sorted_releases():
         "jellyfin_enabled": jellyfin_client.is_configured(),
         "jellyfin_matched": cache.get("jellyfin_matched"),
         "tmdb_enabled": poster_lookup.is_configured(),
+        # Toutes les sorties ayant une date précise, passées comprises et sans
+        # troncature (contrairement à "past", limité à 30) : c'est ce que la
+        # grille du calendrier consomme, pour que les jours déjà écoulés du
+        # mois en cours affichent eux aussi leurs sorties.
+        "dated": dated,
         "today": today_releases,
         "tomorrow": tomorrow_releases,
         "upcoming": upcoming,
@@ -332,84 +337,135 @@ def widget_upcoming():
     puisque ce n'est pas un format calendrier mais une vraie page HTML.
 
     Paramètres optionnels :
-      ?limit=200          -> nombre de sorties incluses dans la grille (défaut : 200, max : 300)
-      ?scope=upcoming      -> upcoming (défaut) / today / tomorrow / all (upcoming + récentes)
+      ?limit=800           -> nombre de sorties incluses dans la grille (défaut : 800, max : 2000)
+      ?scope=all           -> all (défaut : toutes les sorties datées, passées comprises)
+                              / upcoming (à partir d'aujourd'hui) / today / tomorrow
       ?jellyfin=only       -> uniquement les films déjà présents dans Jellyfin
       ?category=4k|bluray  -> filtrer par format
       ?theme=dark|light    -> thème visuel (défaut : dark)
     """
     data = get_sorted_releases()
-    scope = request.args.get("scope", "upcoming")
+    scope = request.args.get("scope", "all")
     only_jellyfin = request.args.get("jellyfin") == "only"
     category = request.args.get("category")
     if category == "bluray":
         category = "bluray_dvd"
     theme = "light" if request.args.get("theme") == "light" else "dark"
     try:
-        limit = max(1, min(300, int(request.args.get("limit", 200))))
+        limit = max(1, min(2000, int(request.args.get("limit", 800))))
     except ValueError:
-        limit = 200
+        limit = 800
 
     if scope == "today":
         releases = data["today"]
     elif scope == "tomorrow":
         releases = data["tomorrow"]
-    elif scope == "all":
-        releases = data["upcoming"] + data["past"]
-    else:
+    elif scope == "upcoming":
         releases = data["upcoming"]
+    else:
+        # Défaut : toute la période couverte par les données, y compris les
+        # jours déjà passés du mois en cours (un calendrier qui n'affiche
+        # rien avant aujourd'hui donne l'impression d'être vide).
+        releases = data["dated"]
 
     releases = _filter_releases(releases, only_jellyfin, category)[:limit]
 
-    months = _build_calendar_months(releases)
     today_iso = date.today().isoformat()
+    months, active_index = _build_calendar_months(releases, today_iso)
 
-    return render_template("widget.html", months=months, today_iso=today_iso, theme=theme)
+    return render_template(
+        "widget.html",
+        months=months,
+        active_index=active_index,
+        today_iso=today_iso,
+        theme=theme,
+    )
 
 
-def _build_calendar_months(releases):
-    """Construit une grille de calendrier mensuel (un objet par mois
-    couvert par les sorties filtrées) : semaines de 7 jours (lundi en
-    premier), chaque jour du mois portant la liste de ses sorties (vide
-    sinon)."""
+# Ordre d'affichage des sorties à l'intérieur d'une même journée
+_CATEGORY_ORDER = {"4k": 0, "bluray": 1, "dvd": 2, "autre": 3}
+
+
+def _build_calendar_months(releases, today_iso=None):
+    """Construit une grille de calendrier mensuel et l'index du mois à
+    afficher par défaut (celui d'aujourd'hui si possible).
+
+    - Les mois sont générés en série continue du premier au dernier mois
+      couvert par les données (mois d'aujourd'hui inclus même s'il est
+      vide), pour que les flèches de navigation ne sautent jamais un mois.
+    - Chaque semaine compte toujours 7 cases : les jours qui débordent sur
+      le mois précédent/suivant (ex. 31 août devant le 1er septembre, ou
+      1er au 4 octobre après le 30 septembre) sont affichés en grisé,
+      avec leurs éventuelles sorties, via le drapeau `in_month`.
+    """
     import calendar as calendar_module
 
-    by_month = {}
+    by_day = {}
     for r in releases:
         date_iso = r.get("date_iso")
         if not date_iso:
             continue
+        by_day.setdefault(date_iso, []).append(r)
+
+    for items in by_day.values():
+        items.sort(key=lambda r: (
+            _CATEGORY_ORDER.get(r.get("format_category", "autre"), 9),
+            (r.get("title") or "").lower(),
+        ))
+
+    def _year_month(date_iso):
         y, m, _d = (int(part) for part in date_iso.split("-"))
-        by_month.setdefault((y, m), {}).setdefault(date_iso, []).append(r)
+        return y, m
+
+    bounds = [_year_month(d) for d in (min(by_day), max(by_day))] if by_day else []
+    if today_iso:
+        bounds.append(_year_month(today_iso))
+    if not bounds:
+        return [], 0
+
+    first, last = min(bounds), max(bounds)
+
+    ordered_months = []
+    y, m = first
+    while (y, m) <= last:
+        ordered_months.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
     cal = calendar_module.Calendar(firstweekday=0)  # semaine commence le lundi
     months = []
-    for (y, m) in sorted(by_month.keys()):
-        day_releases = by_month[(y, m)]
+    active_index = 0
+
+    for index, (y, m) in enumerate(ordered_months):
+        if today_iso and (y, m) == _year_month(today_iso):
+            active_index = index
+
         weeks = []
-        for week in cal.monthdayscalendar(y, m):
+        for week in cal.monthdatescalendar(y, m):
             week_cells = []
-            for day_num in week:
-                if day_num == 0:
-                    week_cells.append(None)  # jour hors du mois affiché
-                    continue
-                day_iso = f"{y:04d}-{m:02d}-{day_num:02d}"
-                items = day_releases.get(day_iso, [])
-                categories = sorted({r.get("format_category", "autre") for r in items})
+            for day in week:
+                day_iso = day.isoformat()
+                items = by_day.get(day_iso, [])
                 week_cells.append({
-                    "day_num": day_num,
+                    "day_num": day.day,
                     "date_iso": day_iso,
+                    "in_month": day.month == m,
+                    "label": format_date_label(day_iso),
                     "releases": items,
-                    "categories": categories,
+                    "categories": sorted(
+                        {r.get("format_category", "autre") for r in items},
+                        key=lambda c: _CATEGORY_ORDER.get(c, 9),
+                    ),
                 })
             weeks.append(week_cells)
+
         months.append({
             "year": y,
             "month": m,
             "label": f"{MOIS_FR_NAMES[m - 1].capitalize()} {y}",
             "weeks": weeks,
         })
-    return months
+
+    return months, active_index
 
 
 @app.route("/api/jellyfin/status")

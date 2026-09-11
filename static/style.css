@@ -123,10 +123,15 @@ header h1 { margin: 0 0 8px; font-size: 1.8rem; }
 }
 .calendar-link-alt summary:hover { color: var(--accent-2); }
 
+/* La zone de contenu occupe toute la largeur disponible (avec une marge
+   latérale qui s'adapte), pour que les blocs "Aujourd'hui" et "Demain"
+   puissent étaler leurs fiches sur plusieurs colonnes. Les listes
+   verticales classiques, elles, restent bornées pour rester lisibles
+   (voir .release-list.stacked plus bas). */
 main {
-  max-width: 1200px;
+  max-width: 1800px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px clamp(14px, 2.5vw, 36px);
 }
 
 section { margin-bottom: 40px; }
@@ -144,17 +149,33 @@ h2 {
   border-radius: var(--radius);
   padding: 20px;
 }
-.slot-card.full-width { margin-bottom: 24px; }
+.slot-card.full-width {
+  width: 100%;
+  margin-bottom: 24px;
+}
 
-/* Grille interne des fiches "Aujourd'hui"/"Demain" : 2-3 colonnes selon
-   la largeur disponible, plutôt qu'une longue colonne unique */
+/* Grille interne des fiches "Aujourd'hui"/"Demain" : le bloc occupe toute
+   la largeur du site et répartit ses fiches sur autant de colonnes que la
+   place le permet (1 sur mobile, jusqu'à 4 sur grand écran), plutôt qu'une
+   longue colonne unique qui laisserait la moitié de la page vide. */
 .grid-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
+  align-items: start;
 }
-@media (max-width: 640px) {
-  .grid-list { grid-template-columns: 1fr; }
+@media (min-width: 720px)  { .grid-list { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1180px) { .grid-list { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1600px) { .grid-list { grid-template-columns: repeat(4, 1fr); } }
+
+/* Les fiches en grille ont plus de place : affiche un peu plus grande */
+.grid-list .release-card { height: 100%; }
+.grid-list .poster { width: 58px; height: 84px; }
+
+/* Listes verticales (prochaines sorties, dates à préciser, récentes) :
+   bornées en largeur pour ne pas s'étirer sur tout l'écran */
+.release-list.stacked {
+  max-width: 1200px;
 }
 
 .today-section h2 { border-left-color: #6fdc7a; }

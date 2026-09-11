@@ -96,9 +96,21 @@ le site source, boutons Amazon/Fnac) :
 http://<ton-serveur>:8080/widget/upcoming
 ```
 
+La grille affiche **tous les jours du mois**, y compris ceux déjà passés,
+et complète chaque mois avec **les jours débordant sur les mois voisins**
+(ex. le 31 août devant le lundi 1er septembre, le 1er au 4 octobre après le
+30 septembre), affichés en grisé mais tout aussi cliquables. Les flèches de
+l'en-tête font défiler les mois un par un, sans jamais en sauter un (les
+touches ← / → fonctionnent aussi).
+
+Cliquer sur un jour ouvre une **fenêtre large** listant ses sorties avec
+l'affiche TMDB, le format, la source, le badge Jellyfin et les boutons
+Amazon/Fnac — sans horaire, une sortie étant un événement de journée
+entière. On la referme avec la croix, un clic à côté, ou `Échap`.
+
 Paramètres optionnels :
-- `?limit=200` — nombre de sorties incluses dans la grille (défaut : 200, max : 300)
-- `?scope=upcoming` — `upcoming` (défaut), `today`, `tomorrow`, ou `all` (à venir + récentes)
+- `?limit=800` — nombre de sorties incluses dans la grille (défaut : 800, max : 2000)
+- `?scope=all` — `all` (défaut : toutes les sorties datées, passées comprises), `upcoming` (à partir d'aujourd'hui), `today`, `tomorrow`
 - `?jellyfin=only` — uniquement les films/séries déjà présents dans Jellyfin
 - `?category=4k` ou `?category=bluray` — filtrer par format
 - `?theme=dark` (défaut) ou `?theme=light`
@@ -109,8 +121,11 @@ Paramètres optionnels :
     widget:
       type: iframe
       src: http://<ton-serveur>:8080/widget/upcoming
-      classes: h-96 sm:h-96 md:h-[28rem] lg:h-[28rem] xl:h-[28rem]
+      classes: h-[32rem] sm:h-[32rem] md:h-[34rem] lg:h-[34rem] xl:h-[34rem]
 ```
+Prévoir une tuile plutôt haute : la fenêtre qui s'ouvre au clic sur un jour
+s'affiche à l'intérieur de l'iFrame, et une tuile trop basse la rendrait
+étroite (elle reste défilable dans tous les cas).
 
 #### Configuration Homarr (widget iFrame natif)
 Ajoute une tuile → **Widgets** → **iFrame**, colle l'URL
@@ -213,7 +228,7 @@ volumes:
 
 ## Endpoints
 
-- `GET /` — page web (planning à venir avec affiches, dates à préciser, sorties récentes)
+- `GET /` — page web (planning à venir avec affiches, dates à préciser, sorties récentes) — les blocs « Aujourd'hui » et « Demain » occupent toute la largeur de la page et répartissent leurs fiches sur 1 à 4 colonnes selon l'écran
 - `GET /widget/upcoming` — page compacte pour widget iFrame (voir section dédiée)
 - `GET /api/releases` — JSON (`?jellyfin=only`, `?category=4k|bluray`)
 - `GET /calendar.ics` — flux iCalendar complet, trié par date (recommandé)
