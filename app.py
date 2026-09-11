@@ -2,7 +2,6 @@ import json
 import logging
 import os
 from datetime import date, datetime, timedelta, timezone
-from itertools import groupby
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -13,7 +12,7 @@ import jellyfin_client
 import poster_lookup
 import scraper_4k
 import scraper_editionlimitee
-from date_utils import format_date_label, format_day_month_abbr, normalize_title
+from date_utils import MOIS_FR_NAMES, format_date_label, normalize_title
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -326,12 +325,14 @@ def calendar_ics_bluray():
 def widget_upcoming():
     """Mini page compacte, pensée pour être embarquée via un widget iFrame
     (Homarr, Homepage, ou tout autre dashboard qui supporte l'embarquement
-    d'une URL). Contrairement au flux .ics, cette page peut afficher les
-    affiches et un bouton vers la fiche TMDB, puisque ce n'est pas un
-    format calendrier mais une vraie page HTML.
+    d'une URL) — présentée comme une vraie grille de calendrier mensuel
+    (jours de la semaine en colonnes, points colorés par format sur les
+    jours où il y a une sortie), plutôt qu'une simple liste. Contrairement
+    au flux .ics, cette page peut afficher les affiches au survol/clic,
+    puisque ce n'est pas un format calendrier mais une vraie page HTML.
 
     Paramètres optionnels :
-      ?limit=30           -> nombre de sorties affichées (défaut : 30)
+      ?limit=200          -> nombre de sorties incluses dans la grille (défaut : 200, max : 300)
       ?scope=upcoming      -> upcoming (défaut) / today / tomorrow / all (upcoming + récentes)
       ?jellyfin=only       -> uniquement les films déjà présents dans Jellyfin
       ?category=4k|bluray  -> filtrer par format
@@ -345,9 +346,9 @@ def widget_upcoming():
         category = "bluray_dvd"
     theme = "light" if request.args.get("theme") == "light" else "dark"
     try:
-        limit = max(1, min(50, int(request.args.get("limit", 30))))
+        limit = max(1, min(300, int(request.args.get("limit", 200))))
     except ValueError:
-        limit = 30
+        limit = 200
 
     if scope == "today":
         releases = data["today"]
@@ -360,21 +361,55 @@ def widget_upcoming():
 
     releases = _filter_releases(releases, only_jellyfin, category)[:limit]
 
-    # Regroupe par jour pour un rendu façon calendrier (repère jour/mois +
-    # sorties de ce jour), plutôt qu'une simple liste plate.
-    days = []
-    for date_iso, group in groupby(releases, key=lambda r: r.get("date_iso")):
-        group = list(group)
-        day_num, month_abbr = format_day_month_abbr(date_iso)
-        days.append({
-            "date_iso": date_iso,
-            "day_num": day_num,
-            "month_abbr": month_abbr,
-            "date_text": group[0].get("date_text"),
-            "releases": group,
-        })
+    months = _build_calendar_months(releases)
+    today_iso = date.today().isoformat()
 
-    return render_template("widget.html", days=days, theme=theme)
+    return render_template("widget.html", months=months, today_iso=today_iso, theme=theme)
+
+
+def _build_calendar_months(releases):
+    """Construit une grille de calendrier mensuel (un objet par mois
+    couvert par les sorties filtrées) : semaines de 7 jours (lundi en
+    premier), chaque jour du mois portant la liste de ses sorties (vide
+    sinon)."""
+    import calendar as calendar_module
+
+    by_month = {}
+    for r in releases:
+        date_iso = r.get("date_iso")
+        if not date_iso:
+            continue
+        y, m, _d = (int(part) for part in date_iso.split("-"))
+        by_month.setdefault((y, m), {}).setdefault(date_iso, []).append(r)
+
+    cal = calendar_module.Calendar(firstweekday=0)  # semaine commence le lundi
+    months = []
+    for (y, m) in sorted(by_month.keys()):
+        day_releases = by_month[(y, m)]
+        weeks = []
+        for week in cal.monthdayscalendar(y, m):
+            week_cells = []
+            for day_num in week:
+                if day_num == 0:
+                    week_cells.append(None)  # jour hors du mois affiché
+                    continue
+                day_iso = f"{y:04d}-{m:02d}-{day_num:02d}"
+                items = day_releases.get(day_iso, [])
+                categories = sorted({r.get("format_category", "autre") for r in items})
+                week_cells.append({
+                    "day_num": day_num,
+                    "date_iso": day_iso,
+                    "releases": items,
+                    "categories": categories,
+                })
+            weeks.append(week_cells)
+        months.append({
+            "year": y,
+            "month": m,
+            "label": f"{MOIS_FR_NAMES[m - 1].capitalize()} {y}",
+            "weeks": weeks,
+        })
+    return months
 
 
 @app.route("/api/jellyfin/status")
@@ -386,6 +421,29 @@ def jellyfin_status():
         return jsonify({"configured": True, "reachable": True, "movies_in_library": len(titles)})
     except Exception as exc:
         return jsonify({"configured": True, "reachable": False, "error": str(exc)}), 502
+
+
+@app.route("/api/affiliate-links/status")
+def affiliate_links_status():
+    """Diagnostic pour vérifier si les liens Amazon/Fnac sont bien
+    détectés, sans avoir à inspecter les logs du conteneur. Répartit les
+    sorties par source et indique combien ont au moins un lien affilié."""
+    cache = load_cache()
+    releases = cache.get("releases", [])
+
+    by_source = {}
+    for r in releases:
+        source = r.get("source", "inconnu")
+        stats = by_source.setdefault(source, {"total": 0, "with_amazon": 0, "with_fnac": 0, "examples_without": []})
+        stats["total"] += 1
+        if r.get("amazon_url"):
+            stats["with_amazon"] += 1
+        if r.get("fnac_url"):
+            stats["with_fnac"] += 1
+        if not r.get("amazon_url") and not r.get("fnac_url") and len(stats["examples_without"]) < 3:
+            stats["examples_without"].append({"title": r.get("title"), "url": r.get("url")})
+
+    return jsonify({"total_releases": len(releases), "by_source": by_source})
 
 
 @app.route("/api/refresh", methods=["POST"])

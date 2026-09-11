@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sorties</title>
+<title>Calendrier des sorties</title>
 <style>
   :root {
     --bg: {{ '#ffffff' if theme == 'light' else '#0f1115' }};
@@ -12,6 +12,7 @@
     --text: {{ '#16181d' if theme == 'light' else '#e8e8ec' }};
     --text-dim: {{ '#6b7280' if theme == 'light' else '#9096a3' }};
     --accent: #e8b64c;
+    --today-bg: {{ '#fff6e0' if theme == 'light' else '#2a2410' }};
   }
   * { box-sizing: border-box; }
   html, body {
@@ -21,163 +22,222 @@
     color: var(--text);
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  body {
-    padding: 8px;
-    overflow-y: auto;
-  }
+  body { padding: 10px; }
   .empty {
     color: var(--text-dim);
     font-size: 0.85rem;
     text-align: center;
     padding: 24px 0;
   }
-  .calendar {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+  .month {
+    display: none;
   }
-  .day-group {
+  .month.active { display: block; }
+  .month-header {
     display: flex;
-    gap: 10px;
-    align-items: flex-start;
-  }
-  .day-marker {
-    flex-shrink: 0;
-    width: 44px;
-    display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .month-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-transform: capitalize;
+  }
+  .nav-btn {
     background: var(--card-bg);
-    border: 1px solid var(--accent);
-    border-radius: 8px;
-    padding: 6px 2px;
-    line-height: 1.1;
+    border: 1px solid var(--card-border);
+    color: var(--text);
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
   }
-  .day-num {
-    font-size: 1.15rem;
-    font-weight: 800;
-    color: var(--accent);
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+  .weekdays, .week {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 3px;
   }
-  .day-mon {
-    font-size: 0.6rem;
+  .weekdays {
+    margin-bottom: 4px;
+  }
+  .weekdays span {
+    text-align: center;
+    font-size: 0.62rem;
     text-transform: uppercase;
     color: var(--text-dim);
     letter-spacing: 0.03em;
   }
-  .day-items {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .week { margin-bottom: 3px; }
+  .day-cell {
+    aspect-ratio: 1 / 1;
+    min-height: 34px;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    border-left: 3px solid var(--card-border);
-    border-radius: 8px;
-    padding: 6px 8px;
-  }
-  .item[data-category="4k"]     { border-left-color: #9b59f6; }
-  .item[data-category="bluray"] { border-left-color: #4c9be8; }
-  .item[data-category="dvd"]    { border-left-color: #e85c5c; }
-  .poster {
-    width: 32px;
-    height: 46px;
-    border-radius: 4px;
-    object-fit: cover;
-    flex-shrink: 0;
-    background: rgba(128,128,128,0.15);
-    display: block;
-  }
-  .poster-placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1rem;
-  }
-  .info {
-    min-width: 0;
-    flex: 1;
+    border-radius: 6px;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    position: relative;
   }
-  .title {
-    font-size: 0.8rem;
+  .day-cell.empty-cell { background: transparent; border-color: transparent; }
+  .day-cell.today { background: var(--today-bg); border-color: var(--accent); }
+  .day-cell .day-num {
+    font-size: 0.72rem;
     font-weight: 600;
     color: var(--text);
-    text-decoration: none;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    display: block;
   }
-  .format {
-    font-size: 0.6rem;
-    color: var(--text-dim);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .buy-row {
+  .day-cell.today .day-num { color: var(--accent); font-weight: 800; }
+  .dots {
     display: flex;
-    gap: 4px;
-    margin-top: 2px;
+    gap: 2px;
   }
-  .buy-btn {
-    font-size: 0.58rem;
-    font-weight: 800;
-    padding: 2px 6px;
-    border-radius: 4px;
+  .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+  }
+  .dot.cat-4k     { background: #9b59f6; }
+  .dot.cat-bluray { background: #4c9be8; }
+  .dot.cat-dvd    { background: #e85c5c; }
+  .dot.cat-autre  { background: #888; }
+  .legend {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 10px;
+    font-size: 0.62rem;
+    color: var(--text-dim);
+  }
+  .legend span { display: flex; align-items: center; gap: 4px; }
+
+  /* Popover listant les sorties d'un jour, affiché au clic */
+  .day-popover {
+    position: absolute;
+    z-index: 10;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 180px;
+    max-width: 240px;
+    background: var(--card-bg);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    display: none;
+  }
+  .day-cell.has-releases { cursor: pointer; }
+  .day-popover.open { display: block; }
+  .popover-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
     text-decoration: none;
-    line-height: 1.3;
+    color: var(--text);
+    border-bottom: 1px solid var(--card-border);
+    font-size: 0.7rem;
   }
-  .buy-amazon { background: #ff9900; color: #0a0c10; }
-  .buy-fnac { background: #ffd200; color: #0a0c10; }
+  .popover-item:last-child { border-bottom: none; }
+  .popover-item img {
+    width: 20px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
 </style>
 </head>
 <body>
-  {% if days %}
-    <div class="calendar">
-      {% for day in days %}
-        <div class="day-group">
-          <div class="day-marker">
-            <span class="day-num">{{ day.day_num }}</span>
-            <span class="day-mon">{{ day.month_abbr }}</span>
-          </div>
-          <div class="day-items">
-            {% for r in day.releases %}
-              <div class="item" data-category="{{ r.format_category or 'autre' }}">
-                {% if r.poster_url %}
-                  <a href="{{ r.poster_page_url or r.url }}" target="_blank" rel="noopener">
-                    <img class="poster" src="{{ r.poster_url }}" loading="lazy" alt="">
-                  </a>
-                {% else %}
-                  <span class="poster poster-placeholder" aria-hidden="true">🎬</span>
-                {% endif %}
-                <div class="info">
-                  <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
-                  <span class="format">{{ r.details }}</span>
-                  {% if r.amazon_url or r.fnac_url %}
-                    <div class="buy-row">
-                      {% if r.amazon_url %}<a href="{{ r.amazon_url }}" target="_blank" rel="noopener sponsored" class="buy-btn buy-amazon">Amazon</a>{% endif %}
-                      {% if r.fnac_url %}<a href="{{ r.fnac_url }}" target="_blank" rel="noopener sponsored" class="buy-btn buy-fnac">Fnac</a>{% endif %}
+  {% if months %}
+    {% for month in months %}
+      <div class="month {{ 'active' if loop.first else '' }}" data-index="{{ loop.index0 }}">
+        <div class="month-header">
+          <button class="nav-btn prev-btn" type="button" {{ 'disabled' if loop.first else '' }}>&lsaquo;</button>
+          <span class="month-title">{{ month.label }}</span>
+          <button class="nav-btn next-btn" type="button" {{ 'disabled' if loop.last else '' }}>&rsaquo;</button>
+        </div>
+        <div class="weekdays">
+          <span>Lu</span><span>Ma</span><span>Me</span><span>Je</span><span>Ve</span><span>Sa</span><span>Di</span>
+        </div>
+        {% for week in month.weeks %}
+          <div class="week">
+            {% for cell in week %}
+              {% if cell is none %}
+                <div class="day-cell empty-cell"></div>
+              {% else %}
+                <div class="day-cell {{ 'today' if cell.date_iso == today_iso else '' }} {{ 'has-releases' if cell.releases else '' }}">
+                  <span class="day-num">{{ cell.day_num }}</span>
+                  {% if cell.categories %}
+                    <div class="dots">
+                      {% for cat in cell.categories %}
+                        <span class="dot cat-{{ cat }}"></span>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                  {% if cell.releases %}
+                    <div class="day-popover">
+                      {% for r in cell.releases %}
+                        <a href="{{ r.url }}" target="_blank" rel="noopener" class="popover-item">
+                          {% if r.poster_url %}<img src="{{ r.poster_url }}" loading="lazy" alt="">{% endif %}
+                          <span>{{ r.title }}</span>
+                        </a>
+                      {% endfor %}
                     </div>
                   {% endif %}
                 </div>
-              </div>
+              {% endif %}
             {% endfor %}
           </div>
-        </div>
-      {% endfor %}
+        {% endfor %}
+      </div>
+    {% endfor %}
+    <div class="legend">
+      <span><span class="dot cat-4k"></span> 4K</span>
+      <span><span class="dot cat-bluray"></span> Blu-ray</span>
+      <span><span class="dot cat-dvd"></span> DVD</span>
     </div>
   {% else %}
     <p class="empty">Aucune sortie à afficher.</p>
   {% endif %}
+
+<script>
+(function () {
+  const months = document.querySelectorAll('.month');
+  let current = 0;
+  months.forEach((m, i) => { if (m.classList.contains('active')) current = i; });
+
+  function show(index) {
+    months.forEach((m, i) => m.classList.toggle('active', i === index));
+    current = index;
+  }
+
+  document.querySelectorAll('.prev-btn').forEach(btn => {
+    btn.addEventListener('click', () => { if (current > 0) show(current - 1); });
+  });
+  document.querySelectorAll('.next-btn').forEach(btn => {
+    btn.addEventListener('click', () => { if (current < months.length - 1) show(current + 1); });
+  });
+
+  // Ouvre/ferme le popover listant les sorties du jour au clic
+  document.querySelectorAll('.day-cell.has-releases').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      const popover = cell.querySelector('.day-popover');
+      const wasOpen = popover.classList.contains('open');
+      document.querySelectorAll('.day-popover.open').forEach(p => p.classList.remove('open'));
+      if (!wasOpen) popover.classList.add('open');
+      e.stopPropagation();
+    });
+  });
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.day-popover.open').forEach(p => p.classList.remove('open'));
+  });
+})();
+</script>
 </body>
 </html>

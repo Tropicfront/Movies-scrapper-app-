@@ -86,18 +86,18 @@ n'affiche d'affiche/poster à partir d'un flux `.ics`** — ce n'est pas
 prévu par le format, quel que soit le contournement technique.
 
 Pour contourner cette limite, l'app expose une **page compacte dédiée à
-l'embarquement en iFrame**, présentée façon calendrier (les sorties sont
-regroupées par jour, chacun avec un repère visuel jour/mois), avec
-affiches, boutons Amazon/Fnac et bordure colorée par format (🟣 4K, 🔵
-Blu-ray, 🔴 DVD) — puisqu'il s'agit d'une vraie page HTML et non d'un
-flux calendrier, tout ça s'affiche normalement (cliquer sur une affiche
-ouvre sa fiche TMDB) :
+l'embarquement en iFrame**, présentée comme une vraie **grille de
+calendrier mensuel** (jours de la semaine en colonnes, un point coloré
+par format sur chaque jour où il y a une sortie — 🟣 4K, 🔵 Blu-ray, 🔴
+DVD), avec navigation mois précédent/suivant. Cliquer sur un jour qui a
+des sorties ouvre la liste des titres de ce jour (avec affiche, lien vers
+le site source, boutons Amazon/Fnac) :
 ```
 http://<ton-serveur>:8080/widget/upcoming
 ```
 
 Paramètres optionnels :
-- `?limit=30` — nombre de sorties affichées (défaut : 30, max : 50)
+- `?limit=200` — nombre de sorties incluses dans la grille (défaut : 200, max : 300)
 - `?scope=upcoming` — `upcoming` (défaut), `today`, `tomorrow`, ou `all` (à venir + récentes)
 - `?jellyfin=only` — uniquement les films/séries déjà présents dans Jellyfin
 - `?category=4k` ou `?category=bluray` — filtrer par format
@@ -105,16 +105,16 @@ Paramètres optionnels :
 
 #### Configuration Homepage (widget iFrame natif)
 ```yaml
-- Prochaines sorties:
+- Calendrier des sorties:
     widget:
       type: iframe
-      src: http://<ton-serveur>:8080/widget/upcoming?limit=30
-      classes: h-96 sm:h-96 md:h-[32rem] lg:h-[32rem] xl:h-[32rem]
+      src: http://<ton-serveur>:8080/widget/upcoming
+      classes: h-96 sm:h-96 md:h-[28rem] lg:h-[28rem] xl:h-[28rem]
 ```
 
 #### Configuration Homarr (widget iFrame natif)
 Ajoute une tuile → **Widgets** → **iFrame**, colle l'URL
-`http://<ton-serveur>:8080/widget/upcoming?limit=30`, puis ajuste la
+`http://<ton-serveur>:8080/widget/upcoming`, puis ajuste la
 hauteur de la tuile selon le nombre de sorties affichées.
 
 ## Affiches (TMDB)
@@ -146,6 +146,14 @@ principal (dans ce cas on retombe sur la page/l'article du site source).
 > scraping (calibrée à partir d'exemples réels) ; si un site change sa
 > mise en page, les boutons peuvent temporairement ne plus apparaître sans
 > que le reste du scraping en soit affecté.
+
+**Pour vérifier toi-même si la détection fonctionne**, sans avoir à
+inspecter les logs du conteneur : `GET /api/affiliate-links/status`
+retourne, par source, combien de sorties ont un lien Amazon/Fnac détecté
+(et quelques exemples de titres qui n'en ont pas), par exemple :
+```bash
+curl http://<ton-serveur>:8080/api/affiliate-links/status
+```
 
 ## Intégration Jellyfin
 
@@ -211,6 +219,7 @@ volumes:
 - `GET /calendar.ics` — flux iCalendar complet, trié par date (recommandé)
 - `GET /calendar-4k.ics` / `GET /calendar-bluray.ics` — flux scindés par format
 - `GET /api/jellyfin/status` — vérifie la connexion à Jellyfin
+- `GET /api/affiliate-links/status` — diagnostic des liens Amazon/Fnac (nombre de sorties avec/sans lien, par source)
 - `POST /api/refresh` — force un rafraîchissement immédiat
 - `GET /health` — healthcheck
 
