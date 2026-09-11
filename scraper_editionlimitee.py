@@ -83,6 +83,37 @@ def _get_month_article_urls(limit=3):
     return urls
 
 
+def _find_purchase_links(entry_block, max_following=3):
+    """Cherche les liens Amazon/Fnac à partir du bloc de l'entrée, puis dans
+    les quelques éléments frères suivants : sur edition-limitee.fr, ces
+    liens ("ici sur Amazon", "ici sur la fnac") sont souvent dans un
+    paragraphe de description séparé, juste après la ligne "Titre ici en
+    Formats. Sorti le Date.", et non dans le même bloc qu'elle. On arrête
+    dès qu'on croise la ligne "ici en ..." de l'entrée suivante, pour ne
+    pas lui voler ses propres liens."""
+    amazon_url = None
+    fnac_url = None
+    host_url = None
+    node = entry_block
+    for i in range(max_following + 1):
+        if node is None or not hasattr(node, "find_all"):
+            break
+        if i > 0 and node.find(string=re.compile(r"ici en\s", re.IGNORECASE)):
+            break  # on a atteint l'entrée suivante, on s'arrête là
+        for link in node.find_all("a"):
+            h = link.get("href", "") or ""
+            if not h:
+                continue
+            if AMAZON_LINK_RE.search(h):
+                amazon_url = amazon_url or h
+            elif FNAC_LINK_RE.search(h):
+                fnac_url = fnac_url or h
+            elif "edition-limitee.fr" in h or h.startswith("/"):
+                host_url = host_url or (h if h.startswith("http") else BASE + h)
+        node = node.find_next_sibling()
+    return host_url, amazon_url, fnac_url
+
+
 def _parse_month_article(html, article_url):
     soup = BeautifulSoup(html, "html.parser")
     releases = []
@@ -108,32 +139,12 @@ def _parse_month_article(html, article_url):
         formats = m.group("formats").strip()
         date_text = m.group("date").strip()
 
-        # Distingue lien vers le site hôte / lien Amazon / lien Fnac. On
-        # élargit la recherche au bloc englobant (p/li/div) plutôt qu'au
-        # seul parent direct du lien "ici en ...", car les boutons d'achat
-        # séparés (ex: "Fnac", "Amazon") sont parfois des liens frères,
-        # pas des enfants du même <strong>.
-        block = a.find_parent(["p", "li", "div"]) or parent
-        host_url = None
-        amazon_url = None
-        fnac_url = None
-        for link in block.find_all("a"):
-            h = link.get("href", "") or ""
-            if not h:
-                continue
-            if AMAZON_LINK_RE.search(h):
-                if not amazon_url:
-                    amazon_url = h
-            elif FNAC_LINK_RE.search(h):
-                if not fnac_url:
-                    fnac_url = h
-            elif "edition-limitee.fr" in h or h.startswith("/"):
-                if not host_url:
-                    host_url = h if h.startswith("http") else BASE + h
+        entry_block = a.find_parent(["p", "li", "div"]) or parent
+        host_url, amazon_url, fnac_url = _find_purchase_links(entry_block)
 
-        # Si aucun lien vers le site hôte n'a été trouvé dans le bloc (le
-        # lien "ici en ..." pointe directement vers un site affilié), on
-        # retombe sur l'article mensuel lui-même : ça reste un lien vers
+        # Si aucun lien vers le site hôte n'a été trouvé (le lien "ici en
+        # ..." pointe directement vers un site affilié), on retombe sur
+        # l'article mensuel lui-même : ça reste un lien vers
         # edition-limitee.fr, contrairement à un lien affilié.
         if not host_url:
             host_url = article_url

@@ -33,6 +33,11 @@ MOIS_FR_NAMES = [
     "juillet", "août", "septembre", "octobre", "novembre", "décembre",
 ]
 
+MOIS_FR_ABBR = [
+    "janv.", "févr.", "mars", "avr.", "mai", "juin",
+    "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+]
+
 # Ex: "22 juillet 2026", "1er Juillet 2026", "4 Aout 2026", "1 août 2026"
 DATE_FULL_RE = re.compile(
     r"(\d{1,2})\s*(?:er)?\s+([A-Za-zÀ-ÿ]+)\.?\s+(\d{4})",
@@ -72,6 +77,18 @@ def format_date_label(date_iso):
         return f"{d} {MOIS_FR_NAMES[m - 1]} {y}"
     except (ValueError, IndexError):
         return None
+
+
+def format_day_month_abbr(date_iso):
+    """Retourne (jour, mois_abrégé) à partir d'une date ISO, ex: (9, 'sept.').
+    Utilisé pour les repères de type calendrier (widget iFrame)."""
+    if not date_iso:
+        return None, None
+    try:
+        y, m, d = (int(part) for part in date_iso.split("-"))
+        return d, MOIS_FR_ABBR[m - 1]
+    except (ValueError, IndexError):
+        return None, None
 
 
 def parse_french_date(text):

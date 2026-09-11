@@ -98,39 +98,41 @@
 
 <main>
   {% if upcoming %}
-    <section class="today-section slot-card full-width">
-      {% if today %}
-        <h2>📅 Aujourd'hui ({{ today|length }})</h2>
-        <div class="release-list">
-          {% for r in today %}
-            {{ release_card(r) }}
-          {% endfor %}
-        </div>
-      {% else %}
-        <h2>📅 Aujourd'hui</h2>
-        <p class="fallback-note">
-          Aucune sortie aujourd'hui.
-          {% if past %}<a href="#recent-releases" class="jump-link">Voir les sorties récentes ↓</a>{% endif %}
-        </p>
-      {% endif %}
-    </section>
+    <div class="today-tomorrow-grid">
+      <section class="today-section slot-card">
+        {% if today %}
+          <h2>📅 Aujourd'hui ({{ today|length }})</h2>
+          <div class="release-list">
+            {% for r in today %}
+              {{ release_card(r) }}
+            {% endfor %}
+          </div>
+        {% else %}
+          <h2>📅 Aujourd'hui</h2>
+          <p class="fallback-note">
+            Aucune sortie aujourd'hui.
+            {% if past %}<a href="#recent-releases" class="jump-link">Voir les sorties récentes ↓</a>{% endif %}
+          </p>
+        {% endif %}
+      </section>
 
-    <section class="tomorrow-section slot-card full-width">
-      {% if tomorrow %}
-        <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
-        <div class="release-list">
-          {% for r in tomorrow %}
-            {{ release_card(r) }}
-          {% endfor %}
-        </div>
-      {% else %}
-        <h2>⏭️ Demain</h2>
-        <p class="fallback-note">
-          Aucune sortie prévue demain pour l'instant.
-          {% if past %}<a href="#recent-releases" class="jump-link">Voir les sorties récentes ↓</a>{% endif %}
-        </p>
-      {% endif %}
-    </section>
+      <section class="tomorrow-section slot-card">
+        {% if tomorrow %}
+          <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
+          <div class="release-list">
+            {% for r in tomorrow %}
+              {{ release_card(r) }}
+            {% endfor %}
+          </div>
+        {% else %}
+          <h2>⏭️ Demain</h2>
+          <p class="fallback-note">
+            Aucune sortie prévue demain pour l'instant.
+            {% if past %}<a href="#recent-releases" class="jump-link">Voir les sorties récentes ↓</a>{% endif %}
+          </p>
+        {% endif %}
+      </section>
+    </div>
 
     <section>
       <h2>Toutes les prochaines sorties ({{ upcoming_rest|length }})</h2>

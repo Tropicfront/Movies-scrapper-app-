@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from datetime import date, datetime, timedelta, timezone
+from itertools import groupby
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -12,7 +13,7 @@ import jellyfin_client
 import poster_lookup
 import scraper_4k
 import scraper_editionlimitee
-from date_utils import format_date_label, normalize_title
+from date_utils import format_date_label, format_day_month_abbr, normalize_title
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
 CACHE_FILE = os.path.join(DATA_DIR, "releases.json")
 POSTER_CACHE_FILE = os.path.join(DATA_DIR, "posters.json")
+AFFILIATE_CACHE_FILE = os.path.join(DATA_DIR, "affiliate_links.json")
 REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "6"))
 EL_MONTH_ARTICLES = int(os.environ.get("EDITION_LIMITEE_MONTH_ARTICLES", "3"))
 APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
@@ -120,6 +122,12 @@ def refresh_data():
     before = len(releases)
     releases = _dedupe(releases)
     logger.info("Dédoublonnage : %d -> %d sorties", before, len(releases))
+
+    try:
+        releases = scraper_4k.enrich_with_affiliate_links(releases, AFFILIATE_CACHE_FILE)
+    except Exception as exc:
+        logger.exception("Échec de la récupération des liens Amazon/Fnac (4K-Ultra-HD.fr)")
+        errors.append(f"Liens affiliés 4K-Ultra-HD.fr : {exc}")
 
     if poster_lookup.is_configured():
         try:
@@ -323,7 +331,7 @@ def widget_upcoming():
     format calendrier mais une vraie page HTML.
 
     Paramètres optionnels :
-      ?limit=10           -> nombre de sorties affichées (défaut : 10)
+      ?limit=30           -> nombre de sorties affichées (défaut : 30)
       ?scope=upcoming      -> upcoming (défaut) / today / tomorrow / all (upcoming + récentes)
       ?jellyfin=only       -> uniquement les films déjà présents dans Jellyfin
       ?category=4k|bluray  -> filtrer par format
@@ -337,9 +345,9 @@ def widget_upcoming():
         category = "bluray_dvd"
     theme = "light" if request.args.get("theme") == "light" else "dark"
     try:
-        limit = max(1, min(50, int(request.args.get("limit", 10))))
+        limit = max(1, min(50, int(request.args.get("limit", 30))))
     except ValueError:
-        limit = 10
+        limit = 30
 
     if scope == "today":
         releases = data["today"]
@@ -352,7 +360,21 @@ def widget_upcoming():
 
     releases = _filter_releases(releases, only_jellyfin, category)[:limit]
 
-    return render_template("widget.html", releases=releases, theme=theme)
+    # Regroupe par jour pour un rendu façon calendrier (repère jour/mois +
+    # sorties de ce jour), plutôt qu'une simple liste plate.
+    days = []
+    for date_iso, group in groupby(releases, key=lambda r: r.get("date_iso")):
+        group = list(group)
+        day_num, month_abbr = format_day_month_abbr(date_iso)
+        days.append({
+            "date_iso": date_iso,
+            "day_num": day_num,
+            "month_abbr": month_abbr,
+            "date_text": group[0].get("date_text"),
+            "releases": group,
+        })
+
+    return render_template("widget.html", days=days, theme=theme)
 
 
 @app.route("/api/jellyfin/status")

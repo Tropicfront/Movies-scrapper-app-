@@ -22,7 +22,6 @@ Les titres non trouvés sont retentés périodiquement (au cas où TMDB
 référencerait le titre plus tard) plutôt qu'indéfiniment ignorés.
 """
 
-import json
 import logging
 import os
 import re
@@ -30,6 +29,8 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import requests
+
+from json_cache import load_json_cache, save_json_cache
 
 logger = logging.getLogger(__name__)
 
@@ -102,28 +103,13 @@ def _search_tmdb(title, timeout=10):
     }
 
 
-def _load_cache(cache_file):
-    if os.path.exists(cache_file):
-        try:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            logger.exception("Cache posters illisible, il sera recréé")
-    return {}
-
-
-def _save_cache(cache_file, cache):
-    with open(cache_file, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
-
-
 def enrich_with_posters(releases, cache_file, request_delay=0.25, search_fn=_search_tmdb):
     """Ajoute poster_url / poster_page_url à chaque release (dict), avec
     cache persistant sur disque. `search_fn` est injectable pour les tests."""
     if not is_configured():
         return releases
 
-    cache = _load_cache(cache_file)
+    cache = load_json_cache(cache_file)
     now = datetime.now(timezone.utc)
     changed = False
 
@@ -158,7 +144,7 @@ def enrich_with_posters(releases, cache_file, request_delay=0.25, search_fn=_sea
             r["poster_page_url"] = entry["page_url"]
 
     if changed:
-        _save_cache(cache_file, cache)
+        save_json_cache(cache_file, cache)
 
     matched = sum(1 for r in releases if r.get("poster_url"))
     logger.info("TMDB : %d/%d sorties avec affiche trouvée", matched, len(releases))

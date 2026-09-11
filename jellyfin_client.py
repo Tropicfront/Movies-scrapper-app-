@@ -1,8 +1,9 @@
 """
-Croise les sorties scrapées avec la bibliothèque de films Jellyfin, pour
-repérer les films que tu possèdes déjà (utile pour savoir si une nouvelle
-sortie est une réédition/upgrade d'un film que tu as déjà, par ex. un
-Steelbook 4K d'un film que tu as en DVD).
+Croise les sorties scrapées avec la bibliothèque Jellyfin (films ET
+séries — un coffret Blu-ray/4K peut tout aussi bien être une série ou un
+anime qu'un film), pour repérer ce que tu possèdes déjà (utile pour
+savoir si une nouvelle sortie est une réédition/upgrade d'un titre que tu
+as déjà, par ex. un Steelbook 4K d'un film que tu as en DVD).
 
 Configuration (variables d'environnement) :
 - JELLYFIN_URL      : ex. http://192.168.1.10:8096 (laisser vide pour désactiver)
@@ -10,7 +11,7 @@ Configuration (variables d'environnement) :
 
 Le titre de chaque sortie est normalisé (minuscules, sans accents, sans
 mentions d'édition/format comme "Blu-ray", "4K", "Steelbook"...) puis comparé
-au titre normalisé de chaque film Jellyfin. Une comparaison approximative
+au titre normalisé de chaque film/série Jellyfin. Une comparaison approximative
 (difflib) sert de filet pour les petites variations de formulation.
 """
 
@@ -34,13 +35,14 @@ def is_configured():
 
 
 def fetch_library_titles(timeout=20):
-    """Récupère l'ensemble des titres (normalisés) des films de la bibliothèque Jellyfin."""
+    """Récupère l'ensemble des titres (normalisés) des films ET séries de
+    la bibliothèque Jellyfin."""
     if not is_configured():
         return set()
 
     url = f"{JELLYFIN_URL}/Items"
     params = {
-        "IncludeItemTypes": "Movie",
+        "IncludeItemTypes": "Movie,Series",
         "Recursive": "true",
         "Fields": "OriginalTitle",
         "Limit": 10000,
@@ -52,7 +54,12 @@ def fetch_library_titles(timeout=20):
     items = resp.json().get("Items", [])
 
     titles = set()
+    movies = series = 0
     for item in items:
+        if item.get("Type") == "Series":
+            series += 1
+        else:
+            movies += 1
         for key in ("Name", "OriginalTitle"):
             val = item.get(key)
             if val:
@@ -60,7 +67,7 @@ def fetch_library_titles(timeout=20):
                 if norm:
                     titles.add(norm)
 
-    logger.info("Jellyfin : %d films récupérés dans la bibliothèque", len(items))
+    logger.info("Jellyfin : %d films + %d séries récupérés dans la bibliothèque", movies, series)
     return titles
 
 
@@ -80,7 +87,7 @@ def annotate_with_library(releases, library_titles):
         r["in_jellyfin"] = found
 
     matched = sum(1 for r in releases if r["in_jellyfin"])
-    logger.info("Jellyfin : %d/%d sorties correspondent à un film déjà possédé", matched, len(releases))
+    logger.info("Jellyfin : %d/%d sorties correspondent à un titre déjà possédé", matched, len(releases))
     return releases
 
 

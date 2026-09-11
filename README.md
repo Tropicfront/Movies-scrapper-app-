@@ -86,17 +86,20 @@ n'affiche d'affiche/poster à partir d'un flux `.ics`** — ce n'est pas
 prévu par le format, quel que soit le contournement technique.
 
 Pour contourner cette limite, l'app expose une **page compacte dédiée à
-l'embarquement en iFrame**, avec affiches et bouton vers la fiche TMDB —
-puisqu'il s'agit d'une vraie page HTML et non d'un flux calendrier, ces
-éléments s'affichent normalement :
+l'embarquement en iFrame**, présentée façon calendrier (les sorties sont
+regroupées par jour, chacun avec un repère visuel jour/mois), avec
+affiches, boutons Amazon/Fnac et bordure colorée par format (🟣 4K, 🔵
+Blu-ray, 🔴 DVD) — puisqu'il s'agit d'une vraie page HTML et non d'un
+flux calendrier, tout ça s'affiche normalement (cliquer sur une affiche
+ouvre sa fiche TMDB) :
 ```
 http://<ton-serveur>:8080/widget/upcoming
 ```
 
 Paramètres optionnels :
-- `?limit=10` — nombre de sorties affichées (défaut : 10, max : 50)
+- `?limit=30` — nombre de sorties affichées (défaut : 30, max : 50)
 - `?scope=upcoming` — `upcoming` (défaut), `today`, `tomorrow`, ou `all` (à venir + récentes)
-- `?jellyfin=only` — uniquement les films déjà présents dans Jellyfin
+- `?jellyfin=only` — uniquement les films/séries déjà présents dans Jellyfin
 - `?category=4k` ou `?category=bluray` — filtrer par format
 - `?theme=dark` (défaut) ou `?theme=light`
 
@@ -105,13 +108,13 @@ Paramètres optionnels :
 - Prochaines sorties:
     widget:
       type: iframe
-      src: http://<ton-serveur>:8080/widget/upcoming?limit=8
-      classes: h-80 sm:h-80 md:h-96 lg:h-96 xl:h-96
+      src: http://<ton-serveur>:8080/widget/upcoming?limit=30
+      classes: h-96 sm:h-96 md:h-[32rem] lg:h-[32rem] xl:h-[32rem]
 ```
 
 #### Configuration Homarr (widget iFrame natif)
 Ajoute une tuile → **Widgets** → **iFrame**, colle l'URL
-`http://<ton-serveur>:8080/widget/upcoming?limit=8`, puis ajuste la
+`http://<ton-serveur>:8080/widget/upcoming?limit=30`, puis ajuste la
 hauteur de la tuile selon le nombre de sorties affichées.
 
 ## Affiches (TMDB)
@@ -126,13 +129,13 @@ les 7 jours pour les titres non trouvés.
 ## Boutons Amazon / Fnac
 
 Chaque sortie affiche, quand disponibles, des boutons **Amazon** et
-**Fnac** repris directement des liens d'achat présents sur la page
+**Fnac** repris directement des liens d'achat présents sur le site
 source :
 
-| Source | Amazon | Fnac |
-|---|---|---|
-| 4k-ultra-hd.fr | liens `amzn.to` | liens `tidd.ly` |
-| edition-limitee.fr | liens `amzn.to` | liens `awin1.com` |
+| Source | Amazon | Fnac | Où ces liens sont cherchés |
+|---|---|---|---|
+| 4k-ultra-hd.fr | liens `amzn.to` | liens `tidd.ly` | sur la page individuelle de chaque film (`/film/<slug>`) — une requête HTTP supplémentaire par titre, mise en cache pour ne pas la refaire à chaque rafraîchissement |
+| edition-limitee.fr | liens `amzn.to` | liens `awin1.com` | dans le paragraphe de description qui suit l'entrée du titre dans l'article mensuel |
 
 Le **titre**, lui, pointe toujours vers la fiche du site source
 (4k-ultra-hd.fr ou edition-limitee.fr) — jamais vers un lien affilié —
@@ -140,9 +143,9 @@ même quand le site source utilise directement un lien affilié comme lien
 principal (dans ce cas on retombe sur la page/l'article du site source).
 
 > Cette détection dépend de la structure HTML de chaque site au moment du
-> scraping ; si un site change sa mise en page, les boutons peuvent
-> temporairement ne plus apparaître sans que le reste du scraping en soit
-> affecté.
+> scraping (calibrée à partir d'exemples réels) ; si un site change sa
+> mise en page, les boutons peuvent temporairement ne plus apparaître sans
+> que le reste du scraping en soit affecté.
 
 ## Intégration Jellyfin
 
@@ -150,8 +153,10 @@ Renseigne `JELLYFIN_URL` et `JELLYFIN_API_KEY` (Jellyfin → Tableau de
 bord → Paramètres avancés → Clés API) pour que chaque sortie déjà
 présente dans ta bibliothèque affiche un badge **📀 Déjà dans Jellyfin**
 (comparaison de titres normalisée + tolérance aux petites variations via
-`difflib`). Laisser les variables vides désactive l'intégration sans
-impact sur le reste de l'app.
+`difflib`). La comparaison porte à la fois sur les **films et les
+séries** de ta bibliothèque Jellyfin, puisque les séries/animes sortent
+aussi en coffrets physiques (Blu-ray/4K). Laisser les variables vides
+désactive l'intégration sans impact sur le reste de l'app.
 
 > Cette intégration ne fait que **lire** ta bibliothèque pour comparer
 > les titres — elle n'ajoute, ne modifie ni ne supprime rien dans Jellyfin.
@@ -222,14 +227,15 @@ de la page.
 .
 ├── app.py                       # Flask + planificateur + fusion des sources
 ├── date_utils.py                 # Dates FR, normalisation titres, classification format
-├── scraper_4k.py                  # Scraper 4k-ultra-hd.fr
-├── scraper_editionlimitee.py      # Scraper edition-limitee.fr
-├── jellyfin_client.py             # Croisement Jellyfin
-├── poster_lookup.py                # Affiches via TMDB
-├── calendar_feed.py                # Génération des flux iCalendar (.ics)
-├── templates/index.html            # Page web
-├── templates/widget.html           # Page compacte pour widget iFrame
-├── static/style.css                # Style
+├── json_cache.py                  # Utilitaire partagé de cache JSON sur disque
+├── scraper_4k.py                   # Scraper 4k-ultra-hd.fr (+ liens affiliés par fiche film)
+├── scraper_editionlimitee.py       # Scraper edition-limitee.fr (+ liens affiliés)
+├── jellyfin_client.py              # Croisement Jellyfin (films + séries)
+├── poster_lookup.py                 # Affiches via TMDB
+├── calendar_feed.py                 # Génération des flux iCalendar (.ics)
+├── templates/index.html             # Page web
+├── templates/widget.html            # Page compacte façon calendrier pour widget iFrame
+├── static/style.css                 # Style
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt

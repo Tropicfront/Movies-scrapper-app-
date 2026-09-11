@@ -12,20 +12,22 @@ rattache la prochaine ligne "Sortie ..." trouvée à ce film. Cette méthode
 ne dépend pas de classes CSS précises, donc elle résiste mieux aux petites
 évolutions de la mise en page du site.
 
-En plus du lien vers la fiche produit du site (toujours utilisé comme
-"url" principale, ce qui garantit que les titres renvoient bien vers
-4k-ultra-hd.fr et non vers un lien affilié), on repère aussi les éventuels
-boutons d'achat affiliés présents dans le même bloc : amzn.to (Amazon) et
-tidd.ly (Fnac, raccourcisseur utilisé par ce site). Cette détection est
-best-effort : si la structure du site change, ces boutons peuvent
-simplement ne plus apparaître sans casser le reste du scraping.
+Les boutons d'achat affiliés (logos Amazon / Fnac) ne sont PAS présents
+sur ces pages de listing : ils n'apparaissent que sur la page individuelle
+de chaque film (/film/<slug>, dans un bloc "afi5-logos-row"). Il faut donc
+une requête HTTP supplémentaire par film pour les récupérer — coûteux sur
+~140 titres, d'où un cache persistant (voir enrich_with_affiliate_links)
+qui ne re-télécharge que les fiches pas encore vues.
 """
 
 import re
 import logging
+import time
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from date_utils import polite_get, make_release
+from json_cache import load_json_cache, save_json_cache
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +43,13 @@ FILM_LINK_RE = re.compile(r"^https?://4k-ultra-hd\.fr/film/[^/?#]+/?$")
 SORTIE_LINE_RE = re.compile(r"^Sortie\s+(?P<date>[^:]+?)\s*:\s*(?P<details>.+)$", re.IGNORECASE)
 PAGE_LINK_RE = re.compile(r"/prochaines-sorties-blu-ray-4k-ultra-hd/page/(\d+)")
 
-# Liens affiliés trouvés à proximité de chaque fiche : amzn.to (Amazon,
-# commun aux deux sites source) et tidd.ly (le raccourcisseur de liens
-# affiliés utilisé par 4k-ultra-hd.fr pour ses liens Fnac).
+# Liens affiliés : amzn.to (Amazon, commun aux deux sites source) et
+# tidd.ly (le raccourcisseur de liens affiliés utilisé par 4k-ultra-hd.fr
+# pour ses liens Fnac).
 AMAZON_LINK_RE = re.compile(r"amzn\.to", re.IGNORECASE)
 FNAC_LINK_RE = re.compile(r"tidd\.ly", re.IGNORECASE)
+
+RETRY_NOT_FOUND_AFTER_DAYS = 7
 
 
 def _normalize_url(href):
@@ -169,7 +173,87 @@ def get_releases(max_pages=6):
     return all_releases
 
 
+def _fetch_affiliate_links_from_film_page(url, timeout=15):
+    """Va chercher les liens Amazon (amzn.to) / Fnac (tidd.ly) sur la page
+    individuelle du film (bloc "afi5-logos-row" au moment de l'écriture,
+    mais on ne dépend pas de cette classe précise : on scanne tous les
+    liens de la page)."""
+    try:
+        html = polite_get(url, timeout=timeout)
+    except Exception:
+        logger.exception("Échec du chargement de la fiche film %s", url)
+        return None, None
+
+    soup = BeautifulSoup(html, "html.parser")
+    amazon_url = None
+    fnac_url = None
+    for a in soup.find_all("a"):
+        href = a.get("href", "") or ""
+        if not amazon_url and AMAZON_LINK_RE.search(href):
+            amazon_url = href
+        elif not fnac_url and FNAC_LINK_RE.search(href):
+            fnac_url = href
+        if amazon_url and fnac_url:
+            break
+    return amazon_url, fnac_url
+
+
+def enrich_with_affiliate_links(releases, cache_file, request_delay=0.3):
+    """Complète amazon_url/fnac_url pour les sorties 4K-Ultra-HD.fr qui ne
+    les ont pas encore (une requête HTTP par fiche film manquante, mise en
+    cache pour ne pas la refaire à chaque rafraîchissement)."""
+    cache = load_json_cache(cache_file)
+    now = datetime.now(timezone.utc)
+    changed = False
+
+    for r in releases:
+        if r.get("source") != SOURCE_NAME:
+            continue
+        if r.get("amazon_url") or r.get("fnac_url"):
+            continue
+        url = r.get("url")
+        if not url:
+            continue
+
+        entry = cache.get(url)
+        needs_lookup = entry is None
+        if entry and not entry.get("found") and entry.get("checked_at"):
+            try:
+                checked_at = datetime.fromisoformat(entry["checked_at"])
+                if now - checked_at > timedelta(days=RETRY_NOT_FOUND_AFTER_DAYS):
+                    needs_lookup = True
+            except ValueError:
+                needs_lookup = True
+
+        if needs_lookup:
+            amazon_url, fnac_url = _fetch_affiliate_links_from_film_page(url)
+            found = bool(amazon_url or fnac_url)
+            cache[url] = {
+                "amazon_url": amazon_url,
+                "fnac_url": fnac_url,
+                "found": found,
+                "checked_at": now.isoformat(),
+            }
+            changed = True
+            time.sleep(request_delay)
+            entry = cache[url]
+
+        if entry.get("amazon_url"):
+            r["amazon_url"] = entry["amazon_url"]
+        if entry.get("fnac_url"):
+            r["fnac_url"] = entry["fnac_url"]
+
+    if changed:
+        save_json_cache(cache_file, cache)
+
+    matched = sum(1 for r in releases if r.get("source") == SOURCE_NAME and (r.get("amazon_url") or r.get("fnac_url")))
+    logger.info("[%s] Liens affiliés : %d sorties avec au moins un lien Amazon/Fnac", SOURCE_NAME, matched)
+    return releases
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    for r in get_releases()[:20]:
+    releases = get_releases()[:20]
+    releases = enrich_with_affiliate_links(releases, "/tmp/4k_affiliate_cache_test.json")
+    for r in releases:
         print(r["date_text"], "|", r["title"], "|", r["details"], "| amazon:", r["amazon_url"], "| fnac:", r["fnac_url"])

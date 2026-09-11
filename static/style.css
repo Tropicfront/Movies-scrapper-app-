@@ -138,13 +138,27 @@ h2 {
   margin-bottom: 16px;
 }
 
+.today-tomorrow-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 40px;
+  align-items: stretch;
+}
+@media (max-width: 700px) {
+  .today-tomorrow-grid { grid-template-columns: 1fr; }
+}
+.today-tomorrow-grid section { margin-bottom: 0; }
+
 .slot-card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
   padding: 20px;
+  display: flex;
+  flex-direction: column;
 }
-.slot-card.full-width { margin-bottom: 24px; }
+.slot-card .release-list { flex: 1; }
 
 .today-section h2 { border-left-color: #6fdc7a; }
 .tomorrow-section h2 { border-left-color: var(--accent-2); }
