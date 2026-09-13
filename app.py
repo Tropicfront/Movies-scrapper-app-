@@ -34,7 +34,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-13.3"
+APP_BUILD = "2026-09-13.4"
 
 # Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
 # sources, on ne garde que celle de la source la mieux classée ici.

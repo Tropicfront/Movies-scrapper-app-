@@ -334,6 +334,16 @@ volumes:
 - `GET /api/debug/calendar` — diagnostic du calendrier : contenu du cache mois par mois et jour par jour, date vue par le conteneur, plage de dates couverte
 - `GET /health` — healthcheck (renvoie aussi `build`, le marqueur de version du code en cours d'exécution)
 
+## Ajouter un module Python
+
+Le Dockerfile copie `*.py` en bloc, et un `RUN python -c ...` vérifie à la
+construction que chaque module se charge : un fichier manquant fait donc
+échouer le build, au lieu de faire boucler le conteneur sur un
+`ModuleNotFoundError: No module named ...` au démarrage. Rien à ajouter au
+Dockerfile pour un nouveau module, donc — mais il faut bien reconstruire
+l'image (`docker compose up -d --build`), un simple redémarrage ne suffit
+pas.
+
 ## Vérifier quelle version du code tourne
 
 Le `docker-compose.yml` d'exemple utilise l'image publiée

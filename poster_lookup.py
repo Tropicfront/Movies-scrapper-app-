@@ -16,6 +16,12 @@ Configuration (variables d'environnement) :
 - TMDB_API_KEY   : clé API TMDB v3, gratuite -> https://www.themoviedb.org/settings/api
 - TMDB_LANGUAGE  : langue des résultats (défaut : fr-FR)
 
+Les titres de coffrets ("Coffret The Eye 1 et 2 4K") n'existent pas dans
+TMDB : title_parser.analyze_title en tire une liste de titres candidats
+("The Eye", "The Eye 2"...), essayés dans l'ordre jusqu'à trouver une
+affiche. C'est ce qui permet d'illustrer les coffrets, qui restaient sans
+image tant qu'on cherchait le titre brut.
+
 Un cache persistant (posters.json, dans le volume de données) évite de
 refaire une recherche à chaque rafraîchissement pour un titre déjà résolu.
 Les titres non trouvés sont retentés périodiquement (au cas où TMDB
@@ -31,6 +37,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from json_cache import load_json_cache, save_json_cache
+from title_parser import analyze_title
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +110,20 @@ def _search_tmdb(title, timeout=10):
     }
 
 
+def _search_candidates(release):
+    """Titres à essayer sur TMDB pour une sortie, du plus probable au moins
+    probable. Un seul essai pour un titre simple ; plusieurs pour un
+    coffret, dont le titre tel qu'écrit par le site source est introuvable
+    dans TMDB."""
+    analysis = analyze_title(release.get("title", ""), release.get("details", ""))
+    candidates = list(analysis["search_titles"])
+    raw = (release.get("title") or "").strip()
+    if raw and raw not in candidates:
+        candidates.append(raw)
+    # Plafond : évite de marteler l'API sur un titre très découpé
+    return candidates[:5]
+
+
 def enrich_with_posters(releases, cache_file, request_delay=0.25, search_fn=_search_tmdb):
     """Ajoute poster_url / poster_page_url à chaque release (dict), avec
     cache persistant sur disque. `search_fn` est injectable pour les tests."""
@@ -130,13 +151,23 @@ def enrich_with_posters(releases, cache_file, request_delay=0.25, search_fn=_sea
                 needs_lookup = True
 
         if needs_lookup:
-            result = search_fn(title)
+            result = None
+            tried = []
+            for candidate in _search_candidates(r):
+                tried.append(candidate)
+                result = search_fn(candidate)
+                time.sleep(request_delay)
+                if result:
+                    break
+            if result:
+                result = {**result, "query": tried[-1]}
+            else:
+                logger.info("TMDB : rien trouvé pour %r (essais : %s)", title, tried)
             changed = True
             if result:
                 cache[key] = {**result, "found": True, "checked_at": now.isoformat()}
             else:
                 cache[key] = {"found": False, "checked_at": now.isoformat()}
-            time.sleep(request_delay)
             entry = cache[key]
 
         if entry and entry.get("found"):
