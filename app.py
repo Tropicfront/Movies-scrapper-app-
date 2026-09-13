@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -13,6 +14,8 @@ import poster_lookup
 import scraper_4k
 import scraper_editionlimitee
 from date_utils import MOIS_FR_NAMES, format_date_label, normalize_title
+from urllib.parse import urlencode
+
 from json_cache import load_json_cache
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -30,7 +33,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-12.1"
+APP_BUILD = "2026-09-13.2"
 
 # Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
 # sources, on ne garde que celle de la source la mieux classée ici.
@@ -354,12 +357,20 @@ def widget_upcoming():
     puisque ce n'est pas un format calendrier mais une vraie page HTML.
 
     Paramètres optionnels :
-      ?limit=800           -> nombre de sorties incluses dans la grille (défaut : 800, max : 2000)
       ?scope=all           -> all (défaut : toutes les sorties datées, passées comprises)
                               / upcoming (à partir d'aujourd'hui) / today / tomorrow
       ?jellyfin=only       -> uniquement les films déjà présents dans Jellyfin
       ?category=4k|bluray  -> filtrer par format
       ?theme=dark|light    -> thème visuel (défaut : dark)
+
+    `?limit=` est accepté mais IGNORÉ, et c'est volontaire : les sorties
+    étant triées par date, toute troncature supprimait les derniers mois du
+    calendrier. Un `?limit=8` hérité d'une ancienne configuration de
+    dashboard ne laissait ainsi qu'un seul jour affiché et désactivait les
+    flèches de navigation. Une grille de calendrier n'a de toute façon pas
+    besoin d'être plafonnée : son poids dépend du nombre de mois, pas du
+    nombre de sorties, puisque le détail de chaque jour est chargé à la
+    demande par /widget/day/<date>.
     """
     data = get_sorted_releases()
     scope = request.args.get("scope", "all")
@@ -368,26 +379,13 @@ def widget_upcoming():
     if category == "bluray":
         category = "bluray_dvd"
     theme = "light" if request.args.get("theme") == "light" else "dark"
-    try:
-        limit = max(1, min(2000, int(request.args.get("limit", 800))))
-    except ValueError:
-        limit = 800
 
-    if scope == "today":
-        releases = data["today"]
-    elif scope == "tomorrow":
-        releases = data["tomorrow"]
-    elif scope == "upcoming":
-        releases = data["upcoming"]
-    else:
-        # Défaut : toute la période couverte par les données, y compris les
-        # jours déjà passés du mois en cours (un calendrier qui n'affiche
-        # rien avant aujourd'hui donne l'impression d'être vide).
-        releases = data["dated"]
+    if request.args.get("limit"):
+        logger.info("Paramètre ?limit ignoré sur /widget/upcoming (voir docstring)")
 
+    releases = _releases_for_scope(data, scope)
     today_iso = date.today().isoformat()
     releases = _filter_releases(releases, only_jellyfin, category)
-    releases = _cap_releases(releases, limit, today_iso)
 
     months, active_index = _build_calendar_months(releases, today_iso)
 
@@ -397,33 +395,97 @@ def widget_upcoming():
         active_index=active_index,
         today_iso=today_iso,
         theme=theme,
+        # Rejoués tels quels par le fetch du détail d'un jour, pour que la
+        # fenêtre applique les mêmes filtres que la grille.
+        day_query=urlencode({k: v for k, v in (
+            ("category", request.args.get("category")),
+            ("jellyfin", request.args.get("jellyfin")),
+        ) if v}),
     )
+
+
+@app.route("/widget/day/<day_iso>")
+def widget_day(day_iso):
+    """Fragment HTML des sorties d'une journée, chargé par le widget au clic
+    sur une case du calendrier (voir templates/widget_day.html)."""
+    try:
+        datetime.strptime(day_iso, "%Y-%m-%d")
+    except ValueError:
+        return Response("Date invalide", status=400, mimetype="text/plain")
+
+    only_jellyfin = request.args.get("jellyfin") == "only"
+    category = request.args.get("category")
+    if category == "bluray":
+        category = "bluray_dvd"
+
+    data = get_sorted_releases()
+    releases = [r for r in data["dated"] if r.get("date_iso") == day_iso]
+    releases = _filter_releases(releases, only_jellyfin, category)
+    releases.sort(key=lambda r: (
+        _CATEGORY_ORDER.get(r.get("format_category", "autre"), 9),
+        (r.get("title") or "").lower(),
+    ))
+    # Signalé aussi dans la fenêtre, pour qu'on sache à quelle sortie
+    # correspond la pastille steelbook de la case du calendrier.
+    for r in releases:
+        r["is_steelbook"] = bool(_STEELBOOK_RE.search(
+            f"{r.get('title', '')} {r.get('details', '')} {r.get('format', '')}"))
+
+    return render_template("widget_day.html", releases=releases)
+
+
+def _releases_for_scope(data, scope):
+    if scope == "today":
+        return data["today"]
+    if scope == "tomorrow":
+        return data["tomorrow"]
+    if scope == "upcoming":
+        return data["upcoming"]
+    # Défaut : toute la période couverte par les données, y compris les
+    # jours déjà passés du mois en cours (un calendrier qui n'affiche rien
+    # avant aujourd'hui donne l'impression d'être vide).
+    return data["dated"]
 
 
 # Ordre d'affichage des sorties à l'intérieur d'une même journée
 _CATEGORY_ORDER = {"4k": 0, "bluray": 1, "dvd": 2, "autre": 3}
 
+# Les éditions steelbook ne sont pas un format de support : l'information se
+# trouve dans le titre ou le descriptif ("Édition Steelbook", "Steel Book").
+# Elle mérite sa propre pastille, puisque c'est souvent le critère d'achat.
+_STEELBOOK_RE = re.compile(r"steel\s*-?\s*book", re.IGNORECASE)
 
-def _cap_releases(releases, limit, today_iso):
-    """Ramène la liste à `limit` entrées SANS sacrifier les sorties à venir.
+_MARKER_LABELS = {
+    "4k": "4K Ultra HD",
+    "bluray": "Blu-ray",
+    "dvd": "DVD",
+    "autre": "Autre format",
+    "steelbook": "Steelbook",
+}
 
-    Les sorties arrivent triées du plus ancien au plus récent : une simple
-    troncature `[:limit]` couperait donc tous les mois futurs (symptôme :
-    un calendrier qui s'arrête au mois en cours, avec la flèche « mois
-    suivant » grisée alors qu'il reste des sorties après). On garde d'abord
-    tout ce qui est à venir, puis on complète avec le passé le plus récent.
-    """
-    if len(releases) <= limit:
-        return releases
 
-    upcoming = [r for r in releases if (r.get("date_iso") or "") >= today_iso]
-    past = [r for r in releases if (r.get("date_iso") or "") < today_iso]
+def _day_markers(releases):
+    """Pastilles à afficher sur une case du calendrier : un point par format
+    présent ce jour-là, plus un point « steelbook » si au moins une des
+    sorties en est une."""
+    markers = sorted(
+        {r.get("format_category", "autre") for r in releases},
+        key=lambda c: _CATEGORY_ORDER.get(c, 9),
+    )
+    if any(_STEELBOOK_RE.search(
+            f"{r.get('title', '')} {r.get('details', '')} {r.get('format', '')}")
+            for r in releases):
+        markers.append("steelbook")
+    return markers
 
-    kept = upcoming[:limit]
-    room_left = limit - len(kept)
-    if room_left > 0:
-        kept = past[-room_left:] + kept
-    return kept
+
+def _day_hint(releases, markers):
+    if not releases:
+        return ""
+    count = len(releases)
+    label = f"{count} sortie{'s' if count > 1 else ''}"
+    formats = ", ".join(_MARKER_LABELS.get(m, m) for m in markers)
+    return f"{label} — {formats}" if formats else label
 
 
 def _build_calendar_months(releases, today_iso=None):
@@ -477,9 +539,12 @@ def _build_calendar_months(releases, today_iso=None):
         if first > last:
             first = last = (ty, tm)
 
+    # Garde-fou : une date aberrante dans les données scrapées (2099...)
+    # ne doit pas faire générer des centaines de mois.
+    MAX_MONTHS = 36
     ordered_months = []
     y, m = first
-    while (y, m) <= last:
+    while (y, m) <= last and len(ordered_months) < MAX_MONTHS:
         ordered_months.append((y, m))
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
@@ -497,16 +562,16 @@ def _build_calendar_months(releases, today_iso=None):
             for day in week:
                 day_iso = day.isoformat()
                 items = by_day.get(day_iso, [])
+                markers = _day_markers(items)
                 week_cells.append({
                     "day_num": day.day,
                     "date_iso": day_iso,
                     "in_month": day.month == m,
                     "label": format_date_label(day_iso),
                     "releases": items,
-                    "categories": sorted(
-                        {r.get("format_category", "autre") for r in items},
-                        key=lambda c: _CATEGORY_ORDER.get(c, 9),
-                    ),
+                    "markers": markers,
+                    # Infobulle de la case : nombre de sorties + formats
+                    "hint": _day_hint(items, markers),
                 })
             weeks.append(week_cells)
 

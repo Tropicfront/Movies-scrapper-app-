@@ -1,0 +1,38 @@
+{# Fragment HTML des sorties d'une journée, injecté dans la fenêtre du
+   widget au clic sur une case. Servi par /widget/day/<date> : le calendrier
+   n'embarque donc plus le détail de tous les jours du mois, ce qui fait
+   passer la page du widget de ~350 Ko à ~25 Ko. Le style vient de
+   widget.html, qui accueille ce fragment. #}
+{% set CAT_LABELS = {'4k': '4K Ultra HD', 'bluray': 'Blu-ray', 'dvd': 'DVD'} %}
+{% for r in releases %}
+  {% set cat = r.format_category or 'autre' %}
+  <div class="ev" data-category="{{ cat }}">
+    <a class="ev-poster" href="{{ r.poster_page_url or r.url }}" target="_blank" rel="noopener">
+      {% if r.poster_url %}
+        <img src="{{ r.poster_url }}" alt="Affiche de {{ r.title }}">
+      {% else %}
+        🎬
+      {% endif %}
+    </a>
+    <div class="ev-info">
+      <a class="ev-title" href="{{ r.url }}" target="_blank" rel="noopener">
+        <span class="dot cat-{{ cat }}"></span>{{ r.title }}
+      </a>
+      {% if r.details %}<div class="ev-details">{{ r.details }}</div>{% endif %}
+      <div class="ev-badges">
+        <span class="badge cat-{{ cat }}">{{ CAT_LABELS.get(cat, 'Autre') }}</span>
+        {% if r.is_steelbook %}<span class="badge steel">Steelbook</span>{% endif %}
+        {% if r.source %}<span class="badge src">{{ r.source }}</span>{% endif %}
+        {% if r.in_jellyfin %}<span class="badge jf">📀 Déjà dans Jellyfin</span>{% endif %}
+      </div>
+      {% if r.amazon_url or r.fnac_url %}
+        <div class="ev-buy">
+          {% if r.amazon_url %}<a class="buy-btn buy-amazon" href="{{ r.amazon_url }}" target="_blank" rel="noopener sponsored">Amazon</a>{% endif %}
+          {% if r.fnac_url %}<a class="buy-btn buy-fnac" href="{{ r.fnac_url }}" target="_blank" rel="noopener sponsored">Fnac</a>{% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% else %}
+  <p class="ev-empty">Aucune sortie ce jour-là.</p>
+{% endfor %}

@@ -20,13 +20,21 @@
   }
   * { box-sizing: border-box; }
   html, body {
+    height: 100%;
     margin: 0;
     padding: 0;
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  body { padding: 10px; }
+  /* La grille s'étire pour remplir la hauteur de la tuile : plus de vide
+     en bas, et pas de débordement sur les mois qui comptent 6 semaines
+     (les lignes se partagent simplement la place disponible). */
+  body {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+  }
   .empty {
     color: var(--text-dim);
     font-size: 0.85rem;
@@ -80,23 +88,35 @@
     letter-spacing: 0.03em;
   }
   .month { display: none; }
-  .month.active { display: block; }
-  .week { margin-bottom: 1px; }
+  .month.active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .week {
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 2px;
+  }
   /* Cases sans fond ni bordure : juste le numéro du jour, et un point
      sous les jours qui ont des sorties. Mise en page calquée sur le widget
      calendrier de Homarr (week-ends en rouge, mois voisins estompés). */
   .day-cell {
-    min-height: 40px;
-    padding: 4px 0 3px;
-    border-radius: 6px;
+    min-height: 42px;
+    padding: 6px 0;
+    border-radius: 8px;
+    /* Bordure transparente présente en permanence : le contour doré
+       d'aujourd'hui ne décale donc pas la grille quand il apparaît. */
+    border: 1.5px solid transparent;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px;
+    gap: 5px;
   }
   .day-cell .day-num {
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     font-weight: 500;
     line-height: 1;
     color: var(--text);
@@ -106,22 +126,50 @@
   .week .day-cell:nth-child(7) .day-num { color: var(--weekend); }
   /* Jours qui débordent sur le mois précédent / suivant */
   .day-cell.out-month .day-num { color: var(--text-dim); opacity: 0.65; }
+  .day-cell.today {
+    border-color: var(--accent);
+    background: var(--today-bg);
+    box-shadow: 0 0 0 1px rgba(232, 182, 76, 0.25);
+  }
   .day-cell.today .day-num { color: var(--accent); font-weight: 800; }
+  /* Le week-end reste rouge, sauf si c'est aujourd'hui : le doré prime */
+  .week .day-cell.today:nth-child(6) .day-num,
+  .week .day-cell.today:nth-child(7) .day-num { color: var(--accent); }
   .day-cell.has-releases { cursor: pointer; }
   .day-cell.has-releases:hover { background: var(--card-bg); }
   /* Indicateur de sorties : un simple compteur neutre. Plus de pastille de
      couleur par format dans la grille (donc plus de légende à afficher en
      bas), ce qui laisse la place à des cases et des chiffres plus grands.
      Le format reste indiqué, en couleur, dans la fenêtre du jour. */
+  .day-markers {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    justify-content: center;
+    min-height: 6px;
+  }
   .day-marker {
-    width: 5px;
-    height: 5px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    background: var(--weekend);
     flex-shrink: 0;
   }
-  .day-cell.today .day-marker { background: var(--accent); }
-  .day-data { display: none; }
+  .day-marker.m-4k        { background: #9b59f6; }
+  .day-marker.m-bluray    { background: #4c9be8; }
+  .day-marker.m-dvd       { background: #e05252; }
+  .day-marker.m-autre     { background: #7b8495; }
+  /* Steelbook : pastille en anneau, pour la distinguer au premier coup
+     d'œil des pastilles de format, qui sont pleines. */
+  .day-marker.m-steelbook {
+    background: transparent;
+    border: 1.5px solid #3ddc97;
+  }
+  .modal-loading, .ev-empty {
+    padding: 18px 12px;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
 
   /* Pastille de format, conservée uniquement dans la fenêtre du jour
      (à côté du titre), plus dans la grille */
@@ -255,6 +303,7 @@
   .badge.cat-bluray { background: #1c3a5c; color: #9ecbff; }
   .badge.cat-dvd    { background: #3a1c1c; color: #ffb3b3; }
   .badge.cat-autre  { background: #2a2e38; color: #ccc; }
+  .badge.steel      { background: #10352b; color: #6ee7b7; }
   .badge.src        { background: #263042; color: #8fb8e8; font-weight: 600; }
   .badge.jf         { background: #22331f; color: #a3d977; font-weight: 600; }
   .ev-buy { display: flex; gap: 6px; margin-top: 1px; }
@@ -272,42 +321,6 @@
 </style>
 </head>
 <body>
-
-{% set CAT_LABELS = {'4k': '4K Ultra HD', 'bluray': 'Blu-ray', 'dvd': 'DVD'} %}
-
-{% macro event_item(r) %}
-  {% set cat = r.format_category or 'autre' %}
-  <div class="ev" data-category="{{ cat }}">
-    <a class="ev-poster" href="{{ r.poster_page_url or r.url }}" target="_blank" rel="noopener">
-      {% if r.poster_url %}
-        {# data-src plutôt que src : les affiches ne sont téléchargées qu'au
-           moment où la fenêtre du jour est ouverte (le widget contient le
-           détail de tous les jours du mois, ça éviterait sinon des centaines
-           de requêtes TMDB à chaque chargement du dashboard). #}
-        <img data-src="{{ r.poster_url }}" alt="Affiche de {{ r.title }}">
-      {% else %}
-        🎬
-      {% endif %}
-    </a>
-    <div class="ev-info">
-      <a class="ev-title" href="{{ r.url }}" target="_blank" rel="noopener">
-        <span class="dot cat-{{ cat }}"></span>{{ r.title }}
-      </a>
-      {% if r.details %}<div class="ev-details">{{ r.details }}</div>{% endif %}
-      <div class="ev-badges">
-        <span class="badge cat-{{ cat }}">{{ CAT_LABELS.get(cat, 'Autre') }}</span>
-        {% if r.source %}<span class="badge src">{{ r.source }}</span>{% endif %}
-        {% if r.in_jellyfin %}<span class="badge jf">📀 Déjà dans Jellyfin</span>{% endif %}
-      </div>
-      {% if r.amazon_url or r.fnac_url %}
-        <div class="ev-buy">
-          {% if r.amazon_url %}<a class="buy-btn buy-amazon" href="{{ r.amazon_url }}" target="_blank" rel="noopener sponsored">Amazon</a>{% endif %}
-          {% if r.fnac_url %}<a class="buy-btn buy-fnac" href="{{ r.fnac_url }}" target="_blank" rel="noopener sponsored">Fnac</a>{% endif %}
-        </div>
-      {% endif %}
-    </div>
-  </div>
-{% endmacro %}
 
 {% if months %}
   <div class="cal-header">
@@ -327,16 +340,14 @@
         <div class="week">
           {% for cell in week %}
             <div class="day-cell {{ '' if cell.in_month else 'out-month' }} {{ 'today' if cell.date_iso == today_iso else '' }} {{ 'has-releases' if cell.releases else '' }}"
+                 data-date="{{ cell.date_iso }}"
                  data-label="{{ cell.label }}"
                  data-count="{{ cell.releases|length }}"
-                 {% if cell.releases %}title="{{ cell.releases|length }} sortie{{ 's' if cell.releases|length > 1 }}"{% endif %}>
+                 {% if cell.hint %}title="{{ cell.hint }}"{% endif %}>
               <span class="day-num">{{ cell.day_num }}</span>
-              {% if cell.releases %}
-                <span class="day-marker"></span>
-              {% endif %}
-              {% if cell.releases %}
-                <div class="day-data">
-                  {% for r in cell.releases %}{{ event_item(r) }}{% endfor %}
+              {% if cell.markers %}
+                <div class="day-markers">
+                  {% for marker in cell.markers %}<span class="day-marker m-{{ marker }}"></span>{% endfor %}
                 </div>
               {% endif %}
             </div>
@@ -392,19 +403,38 @@
   const modalCount = document.getElementById('modal-count');
   const modalBody = document.getElementById('modal-body');
 
-  function openDay(cell) {
-    const data = cell.querySelector('.day-data');
-    if (!data) return;
+  // Filtres de la grille, rejoués sur la requête du détail d'un jour
+  const dayQuery = {{ day_query|tojson }};
+  const dayUrlTemplate = {{ url_for('widget_day', day_iso='__DAY__')|tojson }};
+  let currentRequest = 0;
+
+  async function openDay(cell) {
+    const day = cell.dataset.date;
+    if (!day) return;
     const count = parseInt(cell.dataset.count || '0', 10);
     modalTitle.textContent = cell.dataset.label || '';
     modalCount.textContent = count + (count > 1 ? ' sorties' : ' sortie');
-    modalBody.innerHTML = data.innerHTML;
-    modalBody.querySelectorAll('img[data-src]').forEach(img => {
-      img.src = img.dataset.src;
-      img.removeAttribute('data-src');
-    });
+    modalBody.innerHTML = '<p class="modal-loading">Chargement…</p>';
     backdrop.classList.add('open');
     backdrop.scrollTop = 0;
+
+    // Le détail est chargé à la demande : la grille ne contient que les
+    // dates et les compteurs, ce qui garde la page du widget légère.
+    const token = ++currentRequest;
+    try {
+      // Chemin construit par Flask (url_for) plutôt qu'une URL relative :
+      // reste correct derrière un reverse proxy monté sur un sous-chemin.
+      const url = dayUrlTemplate.replace('__DAY__', encodeURIComponent(day))
+                  + (dayQuery ? '?' + dayQuery : '');
+      const res = await fetch(url, { headers: { 'Accept': 'text/html' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const html = await res.text();
+      if (token !== currentRequest) return;  // une autre case a été cliquée
+      modalBody.innerHTML = html;
+    } catch (err) {
+      if (token !== currentRequest) return;
+      modalBody.innerHTML = '<p class="modal-loading">Impossible de charger les sorties de ce jour.</p>';
+    }
   }
 
   function closeDay() {

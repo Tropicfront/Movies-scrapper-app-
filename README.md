@@ -97,11 +97,29 @@ http://<ton-serveur>:8080/widget/upcoming
 ```
 
 La grille reprend l'allure du widget calendrier de Homarr : pas de cadre
-autour des cases, numéros de jour seuls, week-ends en rouge, mois voisins
-estompés, et un simple point rouge sous les jours qui ont des sorties (leur
-nombre s'affiche au survol). Aucune couleur par format dans la grille, donc
-pas de légende ; le format reste indiqué, en couleur, dans la fenêtre qui
-s'ouvre au clic.
+autour des cases, numéros de jour seuls, week-ends en rouge et mois voisins
+estompés. Le jour courant est entouré d'un **contour doré**.
+
+Chaque jour porte une **pastille par format** présent ce jour-là :
+
+| Pastille | Signification |
+|---|---|
+| point violet | 4K Ultra HD |
+| point bleu | Blu-ray |
+| point rouge | DVD |
+| point gris | format non reconnu |
+| anneau vert | au moins une édition **steelbook** ce jour-là |
+
+La pastille steelbook est un anneau et non un point plein, pour ne pas la
+confondre avec un format. Elle se déclenche sur « steelbook » ou « steel
+book » trouvé dans le titre, le descriptif ou le format, et le badge
+correspondant réapparaît dans la fenêtre du jour pour identifier de quelle
+sortie il s'agit. Le détail (nombre de sorties et liste des formats)
+s'affiche aussi au survol de la case.
+
+La grille **s'étire pour occuper toute la hauteur** de la tuile : les
+lignes se partagent la place disponible, donc pas de vide en bas, et pas
+de débordement sur les mois qui comptent six semaines.
 
 La grille affiche **tous les jours du mois**, y compris ceux déjà passés,
 et complète chaque mois avec **les jours débordant sur les mois voisins**
@@ -110,13 +128,20 @@ et complète chaque mois avec **les jours débordant sur les mois voisins**
 l'en-tête font défiler les mois un par un, sans jamais en sauter un (les
 touches ← / → fonctionnent aussi).
 
+Le détail d'une journée est chargé **à la demande** depuis
+`/widget/day/<date>` au moment du clic : la grille elle-même ne contient
+que les dates et le nombre de sorties par jour, ce qui garde la page du
+widget légère (~100 Ko pour 9 mois, contre ~350 Ko quand le détail de
+chaque jour y était embarqué) et évite de télécharger des centaines
+d'affiches TMDB à chaque rechargement du dashboard.
+
 Cliquer sur un jour ouvre une **fenêtre large** listant ses sorties avec
 l'affiche TMDB, le format, la source, le badge Jellyfin et les boutons
 Amazon/Fnac — sans horaire, une sortie étant un événement de journée
 entière. On la referme avec la croix, un clic à côté, ou `Échap`.
 
 Paramètres optionnels :
-- `?limit=800` — nombre de sorties incluses dans la grille (défaut : 800, max : 2000)
+- `?limit=` — **accepté mais ignoré**, volontairement : les sorties étant triées par date, toute troncature supprimait les derniers mois du calendrier (un `?limit=8` hérité d'une vieille config ne laissait qu'un seul jour affiché, flèches de navigation grisées). Une grille de calendrier n'a pas besoin d'être plafonnée : son poids dépend du nombre de mois, pas du nombre de sorties
 - `?scope=all` — `all` (défaut : toutes les sorties datées, passées comprises), `upcoming` (à partir d'aujourd'hui), `today`, `tomorrow`
 - `?jellyfin=only` — uniquement les films/séries déjà présents dans Jellyfin
 - `?category=4k` ou `?category=bluray` — filtrer par format
@@ -261,6 +286,7 @@ volumes:
 - `GET /api/jellyfin/status` — vérifie la connexion à Jellyfin
 - `GET /api/affiliate-links/status` — diagnostic des liens Amazon/Fnac (nombre de sorties avec/sans lien, par source)
 - `POST /api/refresh` — force un rafraîchissement immédiat
+- `GET /widget/day/<AAAA-MM-JJ>` — fragment HTML des sorties d'une journée, utilisé par le widget au clic sur une case (accepte les mêmes `?category=` et `?jellyfin=`)
 - `GET /api/debug/calendar` — diagnostic du calendrier : contenu du cache mois par mois et jour par jour, date vue par le conteneur, plage de dates couverte
 - `GET /health` — healthcheck (renvoie aussi `build`, le marqueur de version du code en cours d'exécution)
 
@@ -299,6 +325,7 @@ de la page.
 ├── calendar_feed.py                 # Génération des flux iCalendar (.ics)
 ├── templates/index.html             # Page web
 ├── templates/widget.html            # Page compacte façon calendrier pour widget iFrame
+├── templates/widget_day.html        # Fragment : sorties d'une journée, chargé au clic
 ├── static/style.css                 # Style
 ├── Dockerfile
 ├── docker-compose.yml
