@@ -21,6 +21,7 @@
       {% if r.details %}<div class="ev-details">{{ r.details }}</div>{% endif %}
       <div class="ev-badges">
         <span class="badge cat-{{ cat }}">{{ CAT_LABELS.get(cat, 'Autre') }}</span>
+        {% if r.is_boxset %}<span class="badge box">Coffret</span>{% endif %}
         {% if r.is_steelbook %}<span class="badge steel">Steelbook</span>{% endif %}
         {% if r.source %}<span class="badge src">{{ r.source }}</span>{% endif %}
         {% if r.in_jellyfin %}<span class="badge jf">📀 Déjà dans Jellyfin</span>{% endif %}

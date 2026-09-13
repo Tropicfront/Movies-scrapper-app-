@@ -158,11 +158,16 @@
   .day-marker.m-bluray    { background: #4c9be8; }
   .day-marker.m-dvd       { background: #e05252; }
   .day-marker.m-autre     { background: #7b8495; }
-  /* Steelbook : pastille en anneau, pour la distinguer au premier coup
-     d'œil des pastilles de format, qui sont pleines. */
+  /* Steelbook : anneau, et coffret : carré. Des formes différentes des
+     pastilles de format (pleines et rondes), pour qu'on ne les prenne pas
+     pour un quatrième support. */
   .day-marker.m-steelbook {
     background: transparent;
     border: 1.5px solid #3ddc97;
+  }
+  .day-marker.m-coffret {
+    background: #f0932b;
+    border-radius: 2px;
   }
   .modal-loading, .ev-empty {
     padding: 18px 12px;
@@ -303,6 +308,7 @@
   .badge.cat-bluray { background: #1c3a5c; color: #9ecbff; }
   .badge.cat-dvd    { background: #3a1c1c; color: #ffb3b3; }
   .badge.cat-autre  { background: #2a2e38; color: #ccc; }
+  .badge.box        { background: #3d2a10; color: #f8c471; }
   .badge.steel      { background: #10352b; color: #6ee7b7; }
   .badge.src        { background: #263042; color: #8fb8e8; font-weight: 600; }
   .badge.jf         { background: #22331f; color: #a3d977; font-weight: 600; }

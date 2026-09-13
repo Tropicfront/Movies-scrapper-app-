@@ -13,6 +13,7 @@ import jellyfin_client
 import poster_lookup
 import scraper_4k
 import scraper_editionlimitee
+import title_parser
 from date_utils import MOIS_FR_NAMES, format_date_label, normalize_title
 from urllib.parse import urlencode
 
@@ -33,7 +34,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-13.2"
+APP_BUILD = "2026-09-13.3"
 
 # Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
 # sources, on ne garde que celle de la source la mieux classée ici.
@@ -428,8 +429,8 @@ def widget_day(day_iso):
     # Signalé aussi dans la fenêtre, pour qu'on sache à quelle sortie
     # correspond la pastille steelbook de la case du calendrier.
     for r in releases:
-        r["is_steelbook"] = bool(_STEELBOOK_RE.search(
-            f"{r.get('title', '')} {r.get('details', '')} {r.get('format', '')}"))
+        r["is_steelbook"] = _is_steelbook(r)
+        r["is_boxset"] = _is_boxset(r)
 
     return render_template("widget_day.html", releases=releases)
 
@@ -460,8 +461,18 @@ _MARKER_LABELS = {
     "bluray": "Blu-ray",
     "dvd": "DVD",
     "autre": "Autre format",
+    "coffret": "Coffret",
     "steelbook": "Steelbook",
 }
+
+
+def _is_steelbook(r):
+    return bool(_STEELBOOK_RE.search(
+        f"{r.get('title', '')} {r.get('details', '')} {r.get('format', '')}"))
+
+
+def _is_boxset(r):
+    return title_parser.is_boxset(r.get("title", ""), r.get("details", ""))
 
 
 def _day_markers(releases):
@@ -472,9 +483,9 @@ def _day_markers(releases):
         {r.get("format_category", "autre") for r in releases},
         key=lambda c: _CATEGORY_ORDER.get(c, 9),
     )
-    if any(_STEELBOOK_RE.search(
-            f"{r.get('title', '')} {r.get('details', '')} {r.get('format', '')}")
-            for r in releases):
+    if any(_is_boxset(r) for r in releases):
+        markers.append("coffret")
+    if any(_is_steelbook(r) for r in releases):
         markers.append("steelbook")
     return markers
 

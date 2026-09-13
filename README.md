@@ -108,10 +108,12 @@ Chaque jour porte une **pastille par format** présent ce jour-là :
 | point bleu | Blu-ray |
 | point rouge | DVD |
 | point gris | format non reconnu |
+| carré orange | au moins un **coffret** ce jour-là |
 | anneau vert | au moins une édition **steelbook** ce jour-là |
 
-La pastille steelbook est un anneau et non un point plein, pour ne pas la
-confondre avec un format. Elle se déclenche sur « steelbook » ou « steel
+Le coffret est un carré et le steelbook un anneau, plutôt que des points
+pleins comme les formats : la forme évite qu'on les lise comme un support
+de plus. Elle se déclenche sur « steelbook » ou « steel
 book » trouvé dans le titre, le descriptif ou le format, et le badge
 correspondant réapparaît dans la fenêtre du jour pour identifier de quelle
 sortie il s'agit. Le détail (nombre de sorties et liste des formats)
@@ -163,6 +165,48 @@ s'affiche à l'intérieur de l'iFrame, et une tuile trop basse la rendrait
 Ajoute une tuile → **Widgets** → **iFrame**, colle l'URL
 `http://<ton-serveur>:8080/widget/upcoming`, puis ajuste la
 hauteur de la tuile selon le nombre de sorties affichées.
+
+## Lecture des titres (coffrets et recherche TMDB)
+
+Les sites source n'ont pas de champ « coffret » : l'information est dans la
+formulation du titre. `title_parser.py` en tire deux choses.
+
+**La détection de coffret**, sur trois signaux cumulables :
+- un mot-clé — « Coffret », « L'intégrale », « Collection », « Trilogie »… ;
+- une énumération ou une plage de numéros en fin de titre — « 1 et 2 »,
+  « 1 à 7 » : plusieurs numéros, donc plusieurs films dans la boîte ;
+- plusieurs titres réunis par `+` — « Rio Bravo + La Prisonnière du désert ».
+
+**Les titres à demander à TMDB.** Un titre de coffret n'existe pas dans
+TMDB : « Coffret The Eye 1 et 2 4K » n'y donne jamais rien, « The Eye » si.
+Le module produit donc une liste de candidats, du plus probable au moins
+probable, que `poster_lookup` essaie dans l'ordre jusqu'à trouver une
+affiche (5 essais au maximum) :
+
+| Titre du site | Coffret | Candidats TMDB |
+|---|---|---|
+| `Coffret The Eye 1 et 2 4K` | oui | The Eye, The Eye 1, The Eye 2 |
+| `Mortal Kombat 1 et 2 4k` | oui | Mortal Kombat, Mortal Kombat 1, Mortal Kombat 2 |
+| `John Wayne : Rio Bravo + La Prisonnière du désert` | oui | Rio Bravo, La Prisonnière du désert |
+| `Freddy – L'intégrale 1 à 7` | oui | Freddy |
+| `Bleach : Thousand-Year Blood War - Partie 3` | non | Bleach : Thousand-Year Blood War, Bleach |
+| `Star Trek : La série Originale` | non | Star Trek |
+
+Ce qui distingue les deux dernières lignes : « La série Originale » est un
+descriptif d'édition, retiré pour ne garder que « Star Trek », alors que
+« Thousand-Year Blood War » est un vrai sous-titre, conservé. La liste des
+descriptifs reconnus (`_DESCRIPTOR_RE`) est donc le point à compléter quand
+un titre est mal découpé.
+
+Les séparateurs `+` et `/` ne sont pris en compte qu'entourés d'espaces,
+pour ne pas couper « Fast & Furious » ni « Face/Off », et la plage de
+numéros n'est cherchée qu'en fin de titre, pour ne pas se déclencher sur
+« Blade Runner 2049 ».
+
+Le fichier est exécutable pour vérifier une modification :
+```bash
+python title_parser.py     # 14 cas de test, dont les titres simples à ne pas abîmer
+```
 
 ## Affiches (TMDB)
 
@@ -321,6 +365,7 @@ de la page.
 ├── scraper_4k.py                   # Scraper 4k-ultra-hd.fr (+ liens affiliés par fiche film)
 ├── scraper_editionlimitee.py       # Scraper edition-limitee.fr (+ liens affiliés)
 ├── jellyfin_client.py              # Croisement Jellyfin (films + séries)
+├── title_parser.py                  # Coffrets + titres candidats pour TMDB
 ├── poster_lookup.py                 # Affiches via TMDB
 ├── calendar_feed.py                 # Génération des flux iCalendar (.ics)
 ├── templates/index.html             # Page web
