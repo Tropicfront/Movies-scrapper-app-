@@ -13,6 +13,7 @@ import poster_lookup
 import scraper_4k
 import scraper_editionlimitee
 from date_utils import MOIS_FR_NAMES, format_date_label, normalize_title
+from json_cache import load_json_cache
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
 CACHE_FILE = os.path.join(DATA_DIR, "releases.json")
 POSTER_CACHE_FILE = os.path.join(DATA_DIR, "posters.json")
 AFFILIATE_CACHE_FILE = os.path.join(DATA_DIR, "affiliate_links.json")
+EL_AFFILIATE_CACHE_FILE = os.path.join(DATA_DIR, "affiliate_links_el.json")
 REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "6"))
 EL_MONTH_ARTICLES = int(os.environ.get("EDITION_LIMITEE_MONTH_ARTICLES", "3"))
 APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
@@ -28,7 +30,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-11.3"
+APP_BUILD = "2026-09-12.1"
 
 # Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
 # sources, on ne garde que celle de la source la mieux classée ici.
@@ -132,6 +134,15 @@ def refresh_data():
     except Exception as exc:
         logger.exception("Échec de la récupération des liens Amazon/Fnac (4K-Ultra-HD.fr)")
         errors.append(f"Liens affiliés 4K-Ultra-HD.fr : {exc}")
+
+    # Sur edition-limitee.fr aussi, les boutons d'achat ne sont que sur la
+    # fiche de chaque film : une requête par fiche, mise en cache.
+    try:
+        releases = scraper_editionlimitee.enrich_with_affiliate_links(
+            releases, EL_AFFILIATE_CACHE_FILE)
+    except Exception as exc:
+        logger.exception("Échec de la récupération des liens Amazon/Fnac (Édition-Limitée.fr)")
+        errors.append(f"Liens affiliés Édition-Limitée.fr : {exc}")
 
     if poster_lookup.is_configured():
         try:
@@ -540,7 +551,15 @@ def affiliate_links_status():
         if not r.get("amazon_url") and not r.get("fnac_url") and len(stats["examples_without"]) < 3:
             stats["examples_without"].append({"title": r.get("title"), "url": r.get("url")})
 
-    return jsonify({"total_releases": len(releases), "by_source": by_source})
+    return jsonify({
+        "build": APP_BUILD,
+        "total_releases": len(releases),
+        "by_source": by_source,
+        "caches": {
+            "4K-Ultra-HD.fr": len(load_json_cache(AFFILIATE_CACHE_FILE)),
+            "Édition-Limitée.fr": len(load_json_cache(EL_AFFILIATE_CACHE_FILE)),
+        },
+    })
 
 
 @app.route("/api/calendar/debug")

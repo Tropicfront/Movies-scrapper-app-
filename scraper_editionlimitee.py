@@ -15,20 +15,26 @@ Stratégie :
    repéré ici en cherchant tous les liens dont le texte commence par
    "ici en", puis en relisant le texte complet de leur bloc parent.
 
-Le lien "ici en <formats>" pointe parfois vers la fiche du site
-edition-limitee.fr, parfois directement vers un lien affilié (Amazon,
-Fnac via awin1.com). On distingue les deux : l'URL principale ("url",
-utilisée pour le titre) pointe toujours vers edition-limitee.fr — soit la
-fiche dédiée si elle existe, soit à défaut l'article mensuel lui-même —
-tandis que les liens affiliés Amazon/Fnac repérés dans le même bloc sont
-conservés séparément pour être proposés comme boutons d'achat.
+Le lien "ici en <formats>" pointe vers la fiche du film/série sur
+edition-limitee.fr. C'est UNIQUEMENT sur cette fiche que se trouvent les
+boutons d'achat Amazon/Fnac : l'article mensuel, lui, ne contient que les
+titres et les formats. Il faut donc, comme pour 4k-ultra-hd.fr, une requête
+HTTP supplémentaire par fiche — d'où le cache persistant de
+enrich_with_affiliate_links, qui ne re-télécharge pas les fiches déjà vues.
+
+L'URL de la fiche est conservée dans "film_page_url" (absente si l'article
+ne pointait vers aucune fiche), tandis que "url" — celle du titre affiché —
+retombe sur l'article mensuel dans ce cas.
 """
 
 import re
 import logging
+import time
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 
 from date_utils import extract_purchase_links, make_release, polite_get
+from json_cache import load_json_cache, save_json_cache
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +54,15 @@ ENTRY_RE = re.compile(
 )
 
 # La reconnaissance des boutons d'achat est centralisée dans
-# date_utils.classify_purchase_link. Ne chercher, comme avant, que les
-# domaines "amzn.to" et "awin1.com" ratait tous les boutons dès que le site
-# changeait de raccourcisseur ou mettait un lien Amazon direct ; le
-# classement se fait maintenant d'abord sur le libellé du lien, qui est ici
-# très explicite (« ici sur Amazon », « ici sur la fnac »).
+# date_utils.classify_purchase_link (libellé du lien d'abord, URL en filet).
+
+# Une fiche dont la visite n'a rien donné est retentée au bout de ce délai
+RETRY_NOT_FOUND_AFTER_DAYS = 7
+# Nombre maximum de fiches visitées par rafraîchissement : le site publie
+# ~200 sorties, les visiter toutes d'un coup rendrait le premier
+# rafraîchissement très long. Le reste est récupéré au rafraîchissement
+# suivant, le cache conservant ce qui a déjà été trouvé.
+MAX_LOOKUPS_PER_RUN = 150
 
 
 def _get_month_article_urls(limit=3):
@@ -86,13 +96,13 @@ def _get_month_article_urls(limit=3):
 
 
 def _find_purchase_links(entry_block, max_following=3):
-    """Cherche les liens Amazon/Fnac à partir du bloc de l'entrée, puis dans
-    les quelques éléments frères suivants : sur edition-limitee.fr, ces
-    liens ("ici sur Amazon", "ici sur la fnac") sont souvent dans un
-    paragraphe de description séparé, juste après la ligne "Titre ici en
-    Formats. Sorti le Date.", et non dans le même bloc qu'elle. On arrête
-    dès qu'on croise la ligne "ici en ..." de l'entrée suivante, pour ne
-    pas lui voler ses propres liens."""
+    """Repère, à partir du bloc de l'entrée, le lien vers la fiche du film
+    sur edition-limitee.fr, et — par filet, car en pratique l'article
+    mensuel n'en contient pas — d'éventuels liens Amazon/Fnac déjà présents.
+
+    On explore le bloc puis quelques éléments frères suivants, en s'arrêtant
+    dès qu'on croise la ligne "ici en ..." de l'entrée suivante, pour ne pas
+    lui voler ses propres liens."""
     amazon_url = None
     fnac_url = None
     host_url = None
@@ -145,10 +155,11 @@ def _parse_month_article(html, article_url):
         # ..." pointe directement vers un site affilié), on retombe sur
         # l'article mensuel lui-même : ça reste un lien vers
         # edition-limitee.fr, contrairement à un lien affilié.
+        film_page_url = host_url
         if not host_url:
             host_url = article_url
 
-        releases.append(make_release(
+        release = make_release(
             title=title,
             url=host_url,
             source=SOURCE_NAME,
@@ -157,8 +168,93 @@ def _parse_month_article(html, article_url):
             format_hint=formats,
             amazon_url=amazon_url,
             fnac_url=fnac_url,
-        ))
+        )
+        # URL de la fiche à visiter pour trouver les boutons d'achat. Vide si
+        # l'entrée ne pointait vers aucune fiche : on ne visitera alors pas
+        # l'article mensuel, qui ne contient pas de boutons et dont les liens
+        # appartiendraient de toute façon à d'autres films.
+        release["film_page_url"] = film_page_url
+        releases.append(release)
 
+    return releases
+
+
+def _fetch_purchase_links_from_film_page(url):
+    """Va chercher les boutons Amazon / Fnac sur la fiche d'un film ou d'une
+    série. On scanne tous les liens de la page plutôt que de dépendre d'un
+    conteneur CSS précis, le marchand étant reconnu via le libellé du lien
+    ou de son logo."""
+    try:
+        html = polite_get(url)
+    except Exception:
+        logger.warning("Fiche inaccessible, liens d'achat ignorés : %s", url)
+        return None, None
+    soup = BeautifulSoup(html, "html.parser")
+    return extract_purchase_links(soup)
+
+
+def enrich_with_affiliate_links(releases, cache_file, request_delay=0.35,
+                                max_lookups=MAX_LOOKUPS_PER_RUN):
+    """Complète amazon_url/fnac_url pour les sorties Édition-Limitée.fr en
+    visitant la fiche de chaque film (les boutons d'achat ne figurent pas
+    dans l'article mensuel). Une requête HTTP par fiche manquante, mise en
+    cache pour ne pas la refaire à chaque rafraîchissement."""
+    cache = load_json_cache(cache_file)
+    now = datetime.now(timezone.utc)
+    changed = False
+    lookups = 0
+
+    for r in releases:
+        if r.get("source") != SOURCE_NAME:
+            continue
+        if r.get("amazon_url") and r.get("fnac_url"):
+            continue
+        url = r.get("film_page_url")
+        if not url:
+            continue
+
+        entry = cache.get(url)
+        needs_lookup = entry is None
+        # Une entrée qui n'a trouvé qu'un des deux liens (ou aucun) est
+        # retentée passé le délai : le site complète parfois ses fiches.
+        incomplete = bool(entry) and not (entry.get("amazon_url") and entry.get("fnac_url"))
+        if entry and incomplete and entry.get("checked_at"):
+            try:
+                checked_at = datetime.fromisoformat(entry["checked_at"])
+                if now - checked_at > timedelta(days=RETRY_NOT_FOUND_AFTER_DAYS):
+                    needs_lookup = True
+            except ValueError:
+                needs_lookup = True
+
+        if needs_lookup:
+            if lookups >= max_lookups:
+                continue  # la suite sera récupérée au prochain rafraîchissement
+            amazon_url, fnac_url = _fetch_purchase_links_from_film_page(url)
+            cache[url] = {
+                "amazon_url": amazon_url,
+                "fnac_url": fnac_url,
+                "found": bool(amazon_url or fnac_url),
+                "checked_at": now.isoformat(),
+            }
+            changed = True
+            lookups += 1
+            time.sleep(request_delay)
+            entry = cache[url]
+
+        if entry.get("amazon_url") and not r.get("amazon_url"):
+            r["amazon_url"] = entry["amazon_url"]
+        if entry.get("fnac_url") and not r.get("fnac_url"):
+            r["fnac_url"] = entry["fnac_url"]
+
+    if changed:
+        save_json_cache(cache_file, cache)
+
+    concerned = [r for r in releases if r.get("source") == SOURCE_NAME]
+    matched = sum(1 for r in concerned if r.get("amazon_url") or r.get("fnac_url"))
+    logger.info(
+        "[%s] Liens d'achat : %d/%d sorties pourvues (%d fiches visitées ce tour)",
+        SOURCE_NAME, matched, len(concerned), lookups,
+    )
     return releases
 
 

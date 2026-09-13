@@ -15,6 +15,7 @@
     --accent-2: #4c9be8;
     --today-bg: {{ '#fff6e0' if theme == 'light' else '#2a2410' }};
     --modal-bg: {{ '#ffffff' if theme == 'light' else '#14171d' }};
+    --weekend: {{ '#d94f4f' if theme == 'light' else '#e05252' }};
     --backdrop: {{ 'rgba(255,255,255,0.75)' if theme == 'light' else 'rgba(0,0,0,0.72)' }};
   }
   * { box-sizing: border-box; }
@@ -42,7 +43,7 @@
     margin-bottom: 10px;
   }
   .month-title {
-    font-size: 1.1rem;
+    font-size: 1.05rem;
     font-weight: 700;
     text-transform: capitalize;
     text-align: center;
@@ -67,9 +68,9 @@
   .weekdays, .week {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    gap: 4px;
+    gap: 2px;
   }
-  .weekdays { margin-bottom: 6px; }
+  .weekdays { margin-bottom: 8px; }
   .weekdays span {
     text-align: center;
     font-size: 0.72rem;
@@ -80,45 +81,46 @@
   }
   .month { display: none; }
   .month.active { display: block; }
-  .week { margin-bottom: 4px; }
+  .week { margin-bottom: 1px; }
+  /* Cases sans fond ni bordure : juste le numéro du jour, et un point
+     sous les jours qui ont des sorties. Mise en page calquée sur le widget
+     calendrier de Homarr (week-ends en rouge, mois voisins estompés). */
   .day-cell {
-    aspect-ratio: 1 / 1;
-    min-height: 52px;
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: 8px;
+    min-height: 40px;
+    padding: 4px 0 3px;
+    border-radius: 6px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 3px;
   }
-  /* Jours qui débordent sur le mois précédent / suivant : visibles mais estompés */
-  .day-cell.out-month { opacity: 0.4; }
-  .day-cell.today { background: var(--today-bg); border-color: var(--accent); }
   .day-cell .day-num {
-    font-size: 1.05rem;
-    font-weight: 600;
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1;
     color: var(--text);
   }
+  /* Samedi et dimanche */
+  .week .day-cell:nth-child(6) .day-num,
+  .week .day-cell:nth-child(7) .day-num { color: var(--weekend); }
+  /* Jours qui débordent sur le mois précédent / suivant */
+  .day-cell.out-month .day-num { color: var(--text-dim); opacity: 0.65; }
   .day-cell.today .day-num { color: var(--accent); font-weight: 800; }
   .day-cell.has-releases { cursor: pointer; }
-  .day-cell.has-releases:hover { border-color: var(--accent-2); }
+  .day-cell.has-releases:hover { background: var(--card-bg); }
   /* Indicateur de sorties : un simple compteur neutre. Plus de pastille de
      couleur par format dans la grille (donc plus de légende à afficher en
      bas), ce qui laisse la place à des cases et des chiffres plus grands.
      Le format reste indiqué, en couleur, dans la fenêtre du jour. */
-  .day-count {
-    font-size: 0.68rem;
-    font-weight: 700;
-    line-height: 1;
-    padding: 2px 6px;
-    border-radius: 999px;
-    background: {{ '#dfe2e8' if theme == 'light' else '#2f3440' }};
-    color: var(--text-dim);
+  .day-marker {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--weekend);
+    flex-shrink: 0;
   }
-  .day-cell.today .day-count { background: var(--accent); color: #1a1a1a; }
-  .day-cell.has-releases:hover .day-count { color: var(--text); }
+  .day-cell.today .day-marker { background: var(--accent); }
   .day-data { display: none; }
 
   /* Pastille de format, conservée uniquement dans la fenêtre du jour
@@ -326,10 +328,11 @@
           {% for cell in week %}
             <div class="day-cell {{ '' if cell.in_month else 'out-month' }} {{ 'today' if cell.date_iso == today_iso else '' }} {{ 'has-releases' if cell.releases else '' }}"
                  data-label="{{ cell.label }}"
-                 data-count="{{ cell.releases|length }}">
+                 data-count="{{ cell.releases|length }}"
+                 {% if cell.releases %}title="{{ cell.releases|length }} sortie{{ 's' if cell.releases|length > 1 }}"{% endif %}>
               <span class="day-num">{{ cell.day_num }}</span>
               {% if cell.releases %}
-                <span class="day-count">{{ cell.releases|length }}</span>
+                <span class="day-marker"></span>
               {% endif %}
               {% if cell.releases %}
                 <div class="day-data">

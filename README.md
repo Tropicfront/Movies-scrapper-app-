@@ -96,10 +96,12 @@ le site source, boutons Amazon/Fnac) :
 http://<ton-serveur>:8080/widget/upcoming
 ```
 
-La grille n'affiche **aucune couleur par format** : chaque jour porte
-simplement le nombre de sorties, ce qui laisse la place à des cases et des
-chiffres plus lisibles (il n'y a donc plus de légende sous la grille). Le
-format reste indiqué, en couleur, dans la fenêtre qui s'ouvre au clic.
+La grille reprend l'allure du widget calendrier de Homarr : pas de cadre
+autour des cases, numéros de jour seuls, week-ends en rouge, mois voisins
+estompés, et un simple point rouge sous les jours qui ont des sorties (leur
+nombre s'affiche au survol). Aucune couleur par format dans la grille, donc
+pas de légende ; le format reste indiqué, en couleur, dans la fenêtre qui
+s'ouvre au clic.
 
 La grille affiche **tous les jours du mois**, y compris ceux déjà passés,
 et complète chaque mois avec **les jours débordant sur les mois voisins**
@@ -152,10 +154,27 @@ Chaque sortie affiche, quand disponibles, des boutons **Amazon** et
 **Fnac** repris directement des liens d'achat présents sur le site
 source :
 
-| Source | Amazon | Fnac | Où ces liens sont cherchés |
-|---|---|---|---|
-| 4k-ultra-hd.fr | liens `amzn.to` | liens `tidd.ly` | sur la page individuelle de chaque film (`/film/<slug>`) — une requête HTTP supplémentaire par titre, mise en cache pour ne pas la refaire à chaque rafraîchissement |
-| edition-limitee.fr | liens `amzn.to` | liens `awin1.com` | dans le paragraphe de description qui suit l'entrée du titre dans l'article mensuel |
+| Source | Où ces liens sont cherchés |
+|---|---|
+| 4k-ultra-hd.fr | sur la page individuelle de chaque film (`/film/<slug>`) |
+| edition-limitee.fr | sur la fiche de chaque film ou série — l'article mensuel ne contient que les titres et les formats |
+
+Dans les deux cas il faut donc **une requête HTTP par titre**, mise en
+cache (`affiliate_links.json` et `affiliate_links_el.json` dans le volume
+de données) pour ne pas la refaire à chaque rafraîchissement. Côté
+edition-limitee.fr, au maximum 150 fiches sont visitées par
+rafraîchissement (`MAX_LOOKUPS_PER_RUN`) : avec ~200 sorties au catalogue,
+les boutons finissent donc de se remplir au deuxième rafraîchissement. Une
+fiche qui n'a donné aucun lien est retentée au bout de 7 jours.
+
+La reconnaissance du marchand (`date_utils.classify_purchase_link`) se fait
+d'abord sur le **libellé** du lien — son texte (« ici sur Amazon »), ou
+l'`alt`/`title` du logo (« FNAC France ») — et seulement ensuite sur l'URL.
+C'est nécessaire parce que les raccourcisseurs d'affiliation (`tidd.ly`,
+`awin1.com`) servent indifféremment à la Fnac, à Cultura ou à E.Leclerc :
+l'URL seule ne dit pas de quel marchand il s'agit. Les marchands autres
+qu'Amazon et Fnac sont explicitement écartés, et les liens Amazon directs
+(`amazon.fr/dp/...?tag=...`) sont reconnus en plus des `amzn.to`.
 
 Le **titre**, lui, pointe toujours vers la fiche du site source
 (4k-ultra-hd.fr ou edition-limitee.fr) — jamais vers un lien affilié —
@@ -170,7 +189,8 @@ principal (dans ce cas on retombe sur la page/l'article du site source).
 **Pour vérifier toi-même si la détection fonctionne**, sans avoir à
 inspecter les logs du conteneur : `GET /api/affiliate-links/status`
 retourne, par source, combien de sorties ont un lien Amazon/Fnac détecté
-(et quelques exemples de titres qui n'en ont pas), par exemple :
+(quelques exemples de titres qui n'en ont pas, et le nombre de fiches déjà
+visitées par cache), par exemple :
 ```bash
 curl http://<ton-serveur>:8080/api/affiliate-links/status
 ```
