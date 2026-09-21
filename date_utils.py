@@ -1,10 +1,13 @@
 """Utilitaires partagés : parsing de dates en français, requêtes HTTP polies,
 normalisation de titres, classification de format (4K / Blu-ray / DVD)."""
 
+import os
 import re
+import threading
 import time
 import logging
 import unicodedata
+from urllib.parse import urlparse
 from datetime import datetime
 
 import requests
@@ -213,20 +216,121 @@ def extract_purchase_links(scope, amazon_url=None, fnac_url=None):
     return amazon_url, fnac_url
 
 
+# ---------------------------------------------------------------------------
+# Étalement des requêtes et protection contre le blocage
+# ---------------------------------------------------------------------------
+# Récupérer toutes les fiches en un seul passage veut dire quelques centaines
+# de requêtes vers deux sites. Pour ne pas se faire bloquer :
+#  - un intervalle minimum est imposé ENTRE DEUX REQUÊTES VERS UN MÊME HÔTE,
+#    de façon centralisée : tous les scrapers en bénéficient sans avoir à
+#    gérer leurs propres pauses, et deux threads ne peuvent pas partir en
+#    même temps (le créneau est réservé avant de dormir) ;
+#  - une réponse 403/429/503 est traitée comme un signal de ralentissement :
+#    attente exponentielle puis nouvel essai, en respectant l'en-tête
+#    Retry-After quand il est présent ;
+#  - si l'hôte continue de refuser, il est mis en quarantaine quelques
+#    minutes et les requêtes suivantes échouent immédiatement avec
+#    HostUnavailable, au lieu de continuer à le marteler.
+REQUEST_MIN_INTERVAL = float(os.environ.get("REQUEST_MIN_INTERVAL", "0.7"))
+BLOCK_BACKOFF_SECONDS = float(os.environ.get("BLOCK_BACKOFF_SECONDS", "5"))
+BLOCK_COOLDOWN_SECONDS = float(os.environ.get("BLOCK_COOLDOWN_SECONDS", "900"))
+
+# Codes qui signifient « tu vas trop vite » ou « je te refuse »
+THROTTLE_STATUS = (403, 429, 503)
+
+_throttle_lock = threading.Lock()
+_last_request_at = {}
+_blocked_until = {}
+
+
+class HostUnavailable(RuntimeError):
+    """L'hôte nous refuse ou est en quarantaine : inutile d'insister dans ce
+    tour de rafraîchissement. Les appelants doivent interrompre leur boucle
+    SANS enregistrer de résultat négatif en cache."""
+
+
+def _host_of(url):
+    return (urlparse(url).netloc or url).lower()
+
+
+def _wait_turn(host):
+    """Réserve le prochain créneau de requête pour cet hôte, puis attend."""
+    with _throttle_lock:
+        now = time.monotonic()
+        slot = max(now, _last_request_at.get(host, 0.0) + REQUEST_MIN_INTERVAL)
+        _last_request_at[host] = slot
+    if slot > now:
+        time.sleep(slot - now)
+
+
+def _quarantine(host, seconds=None):
+    seconds = BLOCK_COOLDOWN_SECONDS if seconds is None else seconds
+    with _throttle_lock:
+        _blocked_until[host] = time.monotonic() + seconds
+    logger.error("%s nous refuse : mise en quarantaine %.0f s", host, seconds)
+
+
+def host_is_quarantined(url):
+    with _throttle_lock:
+        return _blocked_until.get(_host_of(url), 0.0) > time.monotonic()
+
+
+def _retry_after(resp, attempt):
+    """Délai d'attente : celui demandé par le serveur, sinon exponentiel."""
+    header = resp.headers.get("Retry-After")
+    if header:
+        try:
+            return min(float(header), 120.0)
+        except ValueError:
+            pass
+    return BLOCK_BACKOFF_SECONDS * (2 ** attempt)
+
+
 def polite_get(url, timeout=20, retries=2, delay=0.5):
-    """GET avec retries légers et pause entre les tentatives."""
+    """GET étalé dans le temps, avec retries et gestion du blocage.
+
+    Lève HostUnavailable si l'hôte est en quarantaine ou nous refuse
+    obstinément, une exception requests sinon."""
+    host = _host_of(url)
+    if host_is_quarantined(url):
+        raise HostUnavailable(f"{host} est en quarantaine, requête non tentée")
+
     last_exc = None
     for attempt in range(retries + 1):
+        _wait_turn(host)
         try:
             resp = requests.get(url, headers=HEADERS, timeout=timeout)
-            resp.raise_for_status()
-            resp.encoding = resp.apparent_encoding or "utf-8"
-            return resp.text
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — erreur réseau
             last_exc = exc
-            logger.warning("Échec requête %s (essai %d/%d) : %s", url, attempt + 1, retries + 1, exc)
+            logger.warning("Échec requête %s (essai %d/%d) : %s",
+                           url, attempt + 1, retries + 1, exc)
             if attempt < retries:
                 time.sleep(delay)
+            continue
+
+        if resp.status_code in THROTTLE_STATUS:
+            if attempt < retries:
+                wait = _retry_after(resp, attempt)
+                logger.warning("%s a répondu %d, pause de %.0f s avant nouvel essai",
+                               host, resp.status_code, wait)
+                time.sleep(wait)
+                continue
+            _quarantine(host)
+            raise HostUnavailable(f"{host} a répondu {resp.status_code} à répétition")
+
+        try:
+            resp.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            logger.warning("Échec requête %s (essai %d/%d) : %s",
+                           url, attempt + 1, retries + 1, exc)
+            if attempt < retries:
+                time.sleep(delay)
+            continue
+
+        resp.encoding = resp.apparent_encoding or "utf-8"
+        return resp.text
+
     raise last_exc
 
 

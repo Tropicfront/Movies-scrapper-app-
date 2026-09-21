@@ -76,22 +76,21 @@ def _search_tmdb(title, timeout=10):
     query = _clean_query(title)
     if not query:
         return None
-    try:
-        resp = requests.get(
-            TMDB_SEARCH_URL,
-            params={
-                "api_key": TMDB_API_KEY,
-                "query": query,
-                "language": TMDB_LANGUAGE,
-                "include_adult": "false",
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        results = resp.json().get("results", [])
-    except Exception:
-        logger.exception("Échec recherche TMDB pour %r (requête : %r)", title, query)
-        return None
+    # Volontairement sans try/except : un échec réseau doit remonter, pour
+    # qu'il ne soit pas confondu avec « TMDB ne connaît pas ce titre » et
+    # gravé comme tel dans le cache.
+    resp = requests.get(
+        TMDB_SEARCH_URL,
+        params={
+            "api_key": TMDB_API_KEY,
+            "query": query,
+            "language": TMDB_LANGUAGE,
+            "include_adult": "false",
+        },
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    results = resp.json().get("results", [])
 
     candidates = [
         r for r in results
@@ -124,15 +123,27 @@ def _search_candidates(release):
     return candidates[:5]
 
 
-def enrich_with_posters(releases, cache_file, request_delay=0.25, search_fn=_search_tmdb):
+MAX_CONSECUTIVE_FAILURES = 3
+
+
+def enrich_with_posters(releases, cache_file, request_delay=0.25,
+                        search_fn=_search_tmdb, deadline=None):
     """Ajoute poster_url / poster_page_url à chaque release (dict), avec
-    cache persistant sur disque. `search_fn` est injectable pour les tests."""
+    cache persistant sur disque. `search_fn` est injectable pour les tests.
+    `deadline` est un instant time.monotonic() au-delà duquel on s'arrête,
+    le reste étant repris au passage suivant.
+
+    Compteurs du tour exposés dans `enrich_with_posters.last_stats`."""
     if not is_configured():
         return releases
 
     cache = load_json_cache(cache_file)
     now = datetime.now(timezone.utc)
     changed = False
+    looked_up = 0
+    pending = 0
+    consecutive_failures = 0
+    stopped_reason = None
 
     for r in releases:
         title = r.get("title", "")
@@ -151,22 +162,48 @@ def enrich_with_posters(releases, cache_file, request_delay=0.25, search_fn=_sea
                 needs_lookup = True
 
         if needs_lookup:
+            if stopped_reason:
+                pending += 1
+                continue
+            if deadline is not None and time.monotonic() > deadline:
+                stopped_reason = "budget de temps du rafraîchissement épuisé"
+                pending += 1
+                continue
+
             result = None
             tried = []
+            failed = None
             for candidate in _search_candidates(r):
                 tried.append(candidate)
-                result = search_fn(candidate)
+                try:
+                    result = search_fn(candidate)
+                except Exception as exc:  # noqa: BLE001
+                    failed = exc
+                    break
                 time.sleep(request_delay)
                 if result:
                     break
-            if result:
-                result = {**result, "query": tried[-1]}
-            else:
-                logger.info("TMDB : rien trouvé pour %r (essais : %s)", title, tried)
+
+            if failed is not None:
+                # Échec de requête : on ne met RIEN en cache, sinon une
+                # coupure passagère marquerait des centaines de titres
+                # comme « sans affiche » pour plusieurs jours.
+                consecutive_failures += 1
+                pending += 1
+                logger.warning("TMDB injoignable (%d/%d avant abandon) pour %r : %s",
+                               consecutive_failures, MAX_CONSECUTIVE_FAILURES, title, failed)
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    stopped_reason = "TMDB injoignable à répétition"
+                continue
+
+            consecutive_failures = 0
+            looked_up += 1
             changed = True
             if result:
-                cache[key] = {**result, "found": True, "checked_at": now.isoformat()}
+                cache[key] = {**result, "query": tried[-1], "found": True,
+                              "checked_at": now.isoformat()}
             else:
+                logger.info("TMDB : rien trouvé pour %r (essais : %s)", title, tried)
                 cache[key] = {"found": False, "checked_at": now.isoformat()}
             entry = cache[key]
 
@@ -178,7 +215,16 @@ def enrich_with_posters(releases, cache_file, request_delay=0.25, search_fn=_sea
         save_json_cache(cache_file, cache)
 
     matched = sum(1 for r in releases if r.get("poster_url"))
-    logger.info("TMDB : %d/%d sorties avec affiche trouvée", matched, len(releases))
+    enrich_with_posters.last_stats = {
+        "looked_up": looked_up,
+        "pending": pending,
+        "matched": matched,
+        "total": len(releases),
+        "stopped_reason": stopped_reason,
+    }
+    logger.info("TMDB : %d/%d sorties avec affiche (%d recherches, %d en attente)%s",
+                matched, len(releases), looked_up, pending,
+                f" — arrêt : {stopped_reason}" if stopped_reason else "")
     return releases
 
 

@@ -14,6 +14,22 @@ expose le tout via une page web, un **flux calendrier (.ics)** et un
 | **4k-ultra-hd.fr** | Page "Prochaines sorties 4K" (paginée, ~140 titres) + page "Dates en attente" |
 | **edition-limitee.fr** | Articles mensuels du calendrier, repérés automatiquement depuis la page hub `/blu-ray-dvd/sortie-blu-ray-dvd/` |
 
+### Ajouter une source
+
+Côté `app.py`, tout passe par la liste déclarative `SOURCES` : un nom, un
+appelable qui renvoie les sorties, et optionnellement un appelable
+d'enrichissement des liens d'achat avec son fichier de cache. La boucle de
+rafraîchissement, l'enrichissement et le diagnostic
+`/api/affiliate-links/status` s'y adaptent seuls, et une source qui tombe
+n'empêche pas les autres de remonter — son erreur est simplement affichée
+en haut du site.
+
+Il reste deux choses à faire à la main :
+- ajouter la source à `SOURCE_PRIORITY`, sinon elle reçoit le rang 99 et
+  perd systématiquement ses doublons face aux autres ;
+- le module doit exposer `SOURCE_NAME`, `get_releases()` et renvoyer des
+  dicts construits par `date_utils.make_release`.
+
 ### Dédoublonnage
 Quand le même titre sort à la même date sur les deux sites, une seule
 entrée est conservée — celle de **4k-ultra-hd.fr** en priorité — grâce à
@@ -350,6 +366,48 @@ volumes:
 - `GET /widget/day/<AAAA-MM-JJ>` — fragment HTML des sorties d'une journée, utilisé par le widget au clic sur une case (accepte les mêmes `?category=` et `?jellyfin=`)
 - `GET /api/debug/calendar` — diagnostic du calendrier : contenu du cache mois par mois et jour par jour, date vue par le conteneur, plage de dates couverte
 - `GET /health` — healthcheck (renvoie aussi `build`, le marqueur de version du code en cours d'exécution)
+
+## Tout récupérer dès le premier démarrage
+
+Les liens d'achat et les affiches demandent une requête HTTP par titre, soit
+plusieurs centaines au premier passage. L'ancien comportement plafonnait à
+150 fiches par tour côté Édition-Limitée.fr, ce qui repoussait les boutons
+au deuxième rafraîchissement. Désormais tout est tenté dès le premier
+passage, avec quatre protections contre le blocage :
+
+- **Étalement centralisé des requêtes.** `date_utils.polite_get` impose un
+  intervalle minimum entre deux requêtes vers un même hôte
+  (`REQUEST_MIN_INTERVAL`, 0,7 s par défaut), en réservant le créneau avant
+  de dormir pour que deux threads ne partent pas ensemble. Chaque hôte a son
+  propre compteur, donc les deux sites sont interrogés en parallèle sans se
+  pénaliser.
+- **Recul progressif sur 403 / 429 / 503.** Attente exponentielle
+  (`BLOCK_BACKOFF_SECONDS`, 5 s) en respectant l'en-tête `Retry-After` quand
+  il est présent, puis nouvel essai.
+- **Quarantaine.** Si l'hôte continue de refuser, il est écarté pour
+  `BLOCK_COOLDOWN_SECONDS` (15 min) et les requêtes suivantes échouent
+  immédiatement, sans réseau : on ne le martèle pas.
+- **Budget de temps.** Un rafraîchissement ne dépasse pas
+  `REFRESH_BUDGET_MINUTES` (15 min). Ce qui reste est repris par un passage
+  de rattrapage programmé `FOLLOWUP_DELAY_MINUTES` plus tard (10 min), qui
+  se remplace lui-même tant qu'il reste du travail — plutôt que d'attendre
+  le rafraîchissement périodique suivant.
+
+Un seul rafraîchissement tourne à la fois ; le bouton « Rafraîchir
+maintenant » renvoie 409 si un passage de fond est déjà en cours.
+
+Point important : **aucun résultat négatif n'est mis en cache après un
+échec de chargement**. Une entrée « rien trouvé » n'est écrite que si la
+page a réellement été lue. Auparavant, un blocage ou une coupure en milieu
+de parcours gravait « pas de liens » ou « pas d'affiche » pour des
+centaines de titres, qui n'étaient plus réessayés pendant 7 jours.
+
+Pour suivre l'avancement :
+```bash
+curl http://<ton-serveur>:8090/api/debug/calendar   # champ "refresh"
+```
+Il indique si un passage est en cours, ce qu'il a déjà récupéré, ce qui
+reste en attente et pourquoi il s'est arrêté.
 
 ## Ajouter un module Python
 

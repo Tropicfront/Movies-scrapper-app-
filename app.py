@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -12,6 +14,7 @@ import calendar_feed
 import jellyfin_client
 import poster_lookup
 import scraper_4k
+import purchase_links
 import scraper_editionlimitee
 import title_parser
 from date_utils import MOIS_FR_NAMES, format_date_label, normalize_title
@@ -34,14 +37,32 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-20.1"
+APP_BUILD = "2026-09-21.2"
+
+# Durée maximale d'un rafraîchissement. Au-delà, ce qui reste à récupérer
+# est repris par un passage de rattrapage programmé peu après, plutôt que
+# d'attendre le rafraîchissement périodique suivant. Objectif : tout avoir
+# dès le premier démarrage, sans jamais marteler les sites.
+REFRESH_BUDGET_MINUTES = float(os.environ.get("REFRESH_BUDGET_MINUTES", "15"))
+FOLLOWUP_DELAY_MINUTES = float(os.environ.get("FOLLOWUP_DELAY_MINUTES", "10"))
 
 # Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
 # sources, on ne garde que celle de la source la mieux classée ici.
+# En cas de doublon (même titre, même date), la source de plus petit rang
+# est conservée. Une source absente de ce tableau reçoit le rang 99, donc
+# ne l'emporte jamais : penser à y ajouter toute nouvelle source.
 SOURCE_PRIORITY = {
     scraper_4k.SOURCE_NAME: 0,          # 4K-Ultra-HD.fr : gardé en priorité
     scraper_editionlimitee.SOURCE_NAME: 1,
 }
+
+# Un seul rafraîchissement à la fois : le job périodique et le bouton
+# « Rafraîchir maintenant » peuvent tomber en même temps, et deux passages
+# concurrents se marcheraient dessus en écrivant le même cache.
+_refresh_lock = threading.Lock()
+_scheduler = None
+_refresh_state = {"running": False, "started_at": None, "finished_at": None,
+                  "pending": 0, "steps": {}}
 
 app = Flask(__name__)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -85,8 +106,11 @@ def save_cache(releases, errors, jellyfin_matched):
         "errors": errors,
         "jellyfin_matched": jellyfin_matched,
     }
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+    # Écriture atomique : voir json_cache.save_json_cache
+    tmp = f"{CACHE_FILE}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CACHE_FILE)
     return payload
 
 
@@ -108,49 +132,99 @@ def _dedupe(releases):
     return list(seen.values())
 
 
+# Sources de sorties, dans l'ordre d'interrogation. Ajouter une source =
+# ajouter une entrée ici, rien d'autre côté app.py.
+#   name           : nom affiché, doit correspondre au SOURCE_NAME du module
+#   module         : module de scraping
+#   fetch          : appelable renvoyant la liste des sorties
+#   enrich         : appelable (releases, cache_file) complétant les liens
+#                    d'achat, ou None si la source les donne directement
+#   affiliate_cache: fichier de cache des liens d'achat de cette source
+SOURCES = [
+    {
+        "name": scraper_4k.SOURCE_NAME,
+        "fetch": lambda: scraper_4k.get_releases(),
+        "enrich": lambda releases, cache, deadline: scraper_4k.enrich_with_affiliate_links(
+            releases, cache, deadline=deadline),
+        "affiliate_cache": AFFILIATE_CACHE_FILE,
+    },
+    {
+        "name": scraper_editionlimitee.SOURCE_NAME,
+        "fetch": lambda: scraper_editionlimitee.get_releases(
+            month_articles_limit=EL_MONTH_ARTICLES),
+        "enrich": lambda releases, cache, deadline: scraper_editionlimitee.enrich_with_affiliate_links(
+            releases, cache, deadline=deadline),
+        "affiliate_cache": EL_AFFILIATE_CACHE_FILE,
+    },
+]
+
+
 def refresh_data():
-    logger.info("Rafraîchissement des données (4K-Ultra-HD.fr + Édition-Limitée.fr)")
+    """Rafraîchissement complet. Un seul à la fois ; si le budget de temps
+    est épuisé avant d'avoir tout récupéré, un passage de rattrapage est
+    programmé quelques minutes plus tard."""
+    if not _refresh_lock.acquire(blocking=False):
+        logger.info("Rafraîchissement déjà en cours, celui-ci est ignoré")
+        return
+    try:
+        _do_refresh()
+    finally:
+        _refresh_lock.release()
+
+
+def _do_refresh():
+    logger.info("Rafraîchissement des données (%s)",
+                " + ".join(src["name"] for src in SOURCES))
+    deadline = time.monotonic() + REFRESH_BUDGET_MINUTES * 60
+    _refresh_state.update(running=True, finished_at=None, steps={},
+                          started_at=datetime.now(timezone.utc).isoformat())
     errors = []
     releases = []
 
-    try:
-        releases.extend(scraper_4k.get_releases())
-    except Exception as exc:
-        logger.exception("Échec du scraping 4k-ultra-hd.fr")
-        errors.append(f"4K-Ultra-HD.fr : {exc}")
-
-    try:
-        releases.extend(scraper_editionlimitee.get_releases(month_articles_limit=EL_MONTH_ARTICLES))
-    except Exception as exc:
-        logger.exception("Échec du scraping edition-limitee.fr")
-        errors.append(f"Édition-Limitée.fr : {exc}")
+    for src in SOURCES:
+        try:
+            found = src["fetch"]()
+            releases.extend(found)
+            logger.info("[%s] %d sorties récupérées", src["name"], len(found))
+        except Exception as exc:
+            logger.exception("Échec du scraping %s", src["name"])
+            errors.append(f"{src['name']} : {exc}")
 
     if not releases:
         logger.warning("Aucune sortie récupérée sur aucune source, le cache n'est pas modifié")
+        _refresh_state.update(running=False, pending=0,
+                              finished_at=datetime.now(timezone.utc).isoformat())
+        # Les sources sont peut-être seulement indisponibles : on retente
+        # sans attendre le prochain rafraîchissement périodique.
+        _schedule_followup("aucune source n'a répondu")
         return
 
     before = len(releases)
     releases = _dedupe(releases)
     logger.info("Dédoublonnage : %d -> %d sorties", before, len(releases))
 
-    try:
-        releases = scraper_4k.enrich_with_affiliate_links(releases, AFFILIATE_CACHE_FILE)
-    except Exception as exc:
-        logger.exception("Échec de la récupération des liens Amazon/Fnac (4K-Ultra-HD.fr)")
-        errors.append(f"Liens affiliés 4K-Ultra-HD.fr : {exc}")
-
-    # Sur edition-limitee.fr aussi, les boutons d'achat ne sont que sur la
-    # fiche de chaque film : une requête par fiche, mise en cache.
-    try:
-        releases = scraper_editionlimitee.enrich_with_affiliate_links(
-            releases, EL_AFFILIATE_CACHE_FILE)
-    except Exception as exc:
-        logger.exception("Échec de la récupération des liens Amazon/Fnac (Édition-Limitée.fr)")
-        errors.append(f"Liens affiliés Édition-Limitée.fr : {exc}")
+    # Les boutons d'achat ne sont, sur les deux sites, que sur la fiche de
+    # chaque film : une requête HTTP par fiche, mise en cache par source.
+    pending = 0
+    for src in SOURCES:
+        if not src.get("enrich"):
+            continue
+        try:
+            releases = src["enrich"](releases, src["affiliate_cache"], deadline)
+            stats = getattr(purchase_links.enrich_releases, "last_stats", {})
+            _refresh_state["steps"][src["name"]] = stats
+            pending += stats.get("pending", 0)
+        except Exception as exc:
+            logger.exception("Échec de la récupération des liens d'achat (%s)", src["name"])
+            errors.append(f"Liens affiliés {src['name']} : {exc}")
 
     if poster_lookup.is_configured():
         try:
-            releases = poster_lookup.enrich_with_posters(releases, POSTER_CACHE_FILE)
+            releases = poster_lookup.enrich_with_posters(
+                releases, POSTER_CACHE_FILE, deadline=deadline)
+            stats = getattr(poster_lookup.enrich_with_posters, "last_stats", {})
+            _refresh_state["steps"]["TMDB"] = stats
+            pending += stats.get("pending", 0)
         except Exception as exc:
             logger.exception("Échec de la récupération des affiches TMDB")
             errors.append(f"TMDB : {exc}")
@@ -171,11 +245,31 @@ def refresh_data():
             r["in_jellyfin"] = False
 
     save_cache(releases, errors, jellyfin_matched)
+    _refresh_state.update(running=False, pending=pending,
+                          finished_at=datetime.now(timezone.utc).isoformat())
     logger.info(
         "Cache mis à jour : %d sorties (%d erreurs)%s",
         len(releases), len(errors),
         f", {jellyfin_matched} déjà dans Jellyfin" if jellyfin_matched is not None else "",
     )
+    if pending:
+        _schedule_followup(f"{pending} éléments encore à récupérer")
+
+
+def _schedule_followup(reason):
+    """Programme un passage de rattrapage dans quelques minutes. Remplace le
+    précédent s'il y en avait un, pour ne jamais empiler les passages."""
+    if _scheduler is None:
+        logger.info("Rattrapage non programmé (pas d'ordonnanceur) : %s", reason)
+        return
+    when = datetime.now(timezone.utc) + timedelta(minutes=FOLLOWUP_DELAY_MINUTES)
+    try:
+        _scheduler.add_job(refresh_data, "date", run_date=when,
+                           id="refresh-followup", replace_existing=True)
+        logger.info("Rattrapage programmé dans %.0f min (%s)",
+                    FOLLOWUP_DELAY_MINUTES, reason)
+    except Exception:
+        logger.exception("Impossible de programmer le rattrapage")
 
 
 def get_sorted_releases():
@@ -644,8 +738,8 @@ def affiliate_links_status():
         "total_releases": len(releases),
         "by_source": by_source,
         "caches": {
-            "4K-Ultra-HD.fr": len(load_json_cache(AFFILIATE_CACHE_FILE)),
-            "Édition-Limitée.fr": len(load_json_cache(EL_AFFILIATE_CACHE_FILE)),
+            src["name"]: len(load_json_cache(src["affiliate_cache"]))
+            for src in SOURCES if src.get("affiliate_cache")
         },
     })
 
@@ -688,6 +782,12 @@ def calendar_debug():
 
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
+    if _refresh_state.get("running"):
+        return jsonify({
+            "status": "busy",
+            "message": "Un rafraîchissement est déjà en cours",
+            "started_at": _refresh_state.get("started_at"),
+        }), 409
     refresh_data()
     cache = load_cache()
     return jsonify({
@@ -695,6 +795,7 @@ def api_refresh():
         "updated_at": cache.get("updated_at"),
         "errors": cache.get("errors", []),
         "jellyfin_matched": cache.get("jellyfin_matched"),
+        "pending": _refresh_state.get("pending"),
     })
 
 
@@ -729,6 +830,9 @@ def debug_calendar():
         "build": APP_BUILD,
         "updated_at": cache.get("updated_at"),
         "errors": cache.get("errors", []),
+        # Où en est la collecte : utile juste après un démarrage, le temps
+        # que toutes les fiches et toutes les affiches soient récupérées.
+        "refresh": _refresh_state,
         # Date vue par le CONTENEUR : si elle ne correspond pas à ta date
         # locale, le découpage aujourd'hui/demain et le mois ouvert par
         # défaut seront décalés (voir la variable TZ du conteneur).
@@ -752,9 +856,11 @@ def health():
 
 
 def start_scheduler():
+    global _scheduler
     scheduler = BackgroundScheduler(timezone="UTC")
     scheduler.add_job(refresh_data, "interval", hours=REFRESH_HOURS, next_run_time=datetime.now(timezone.utc))
     scheduler.start()
+    _scheduler = scheduler
     return scheduler
 
 
