@@ -21,5 +21,11 @@ def load_json_cache(cache_file):
 
 
 def save_json_cache(cache_file, cache):
-    with open(cache_file, "w", encoding="utf-8") as f:
+    """Écriture atomique : fichier temporaire puis renommage. Une requête qui
+    lit le cache pendant l'écriture ne peut donc jamais tomber sur un JSON
+    tronqué — ce qui devient probable dès que les rafraîchissements durent
+    plusieurs minutes."""
+    tmp = f"{cache_file}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, cache_file)

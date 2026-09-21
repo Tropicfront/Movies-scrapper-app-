@@ -149,24 +149,38 @@ h2 {
   border-radius: var(--radius);
   padding: 20px;
 }
+/* "Aujourd'hui" à gauche, "Demain" à droite, chacun sur la moitié de la
+   largeur du site et chacun avec ses fiches sur 2 colonnes. En dessous de
+   1000 px les deux blocs s'empilent (mais gardent leurs 2 colonnes), et en
+   dessous de 620 px on repasse à une seule colonne. */
+.slots-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 40px;
+}
+.slots-row > section { margin-bottom: 0; min-width: 0; }
+
 .slot-card.full-width {
   width: 100%;
   margin-bottom: 24px;
 }
 
-/* Grille interne des fiches "Aujourd'hui"/"Demain" : le bloc occupe toute
-   la largeur du site et répartit ses fiches sur autant de colonnes que la
-   place le permet (1 sur mobile, jusqu'à 4 sur grand écran), plutôt qu'une
-   longue colonne unique qui laisserait la moitié de la page vide. */
+/* Grille interne des fiches "Aujourd'hui"/"Demain" */
 .grid-list {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
   align-items: start;
 }
-@media (min-width: 720px)  { .grid-list { grid-template-columns: repeat(2, 1fr); } }
-@media (min-width: 1180px) { .grid-list { grid-template-columns: repeat(3, 1fr); } }
-@media (min-width: 1600px) { .grid-list { grid-template-columns: repeat(4, 1fr); } }
+
+@media (max-width: 1000px) {
+  .slots-row { grid-template-columns: 1fr; gap: 24px; }
+}
+@media (max-width: 620px) {
+  .grid-list { grid-template-columns: 1fr; }
+}
 
 /* Les fiches en grille ont plus de place : affiche un peu plus grande */
 .grid-list .release-card { height: 100%; }

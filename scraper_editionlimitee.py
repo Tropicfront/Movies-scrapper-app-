@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 
 from date_utils import extract_purchase_links, make_release, polite_get
-from json_cache import load_json_cache, save_json_cache
+import purchase_links
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,8 @@ ENTRY_RE = re.compile(
 # La reconnaissance des boutons d'achat est centralisée dans
 # date_utils.classify_purchase_link (libellé du lien d'abord, URL en filet).
 
-# Une fiche dont la visite n'a rien donné est retentée au bout de ce délai
-RETRY_NOT_FOUND_AFTER_DAYS = 7
-# Nombre maximum de fiches visitées par rafraîchissement : le site publie
-# ~200 sorties, les visiter toutes d'un coup rendrait le premier
-# rafraîchissement très long. Le reste est récupéré au rafraîchissement
-# suivant, le cache conservant ce qui a déjà été trouvé.
-MAX_LOOKUPS_PER_RUN = 150
+# Le délai de nouvelle tentative et l'arrêt en cas de blocage sont gérés
+# par purchase_links, commun aux deux sources.
 
 
 def _get_month_article_urls(limit=3):
@@ -184,78 +179,24 @@ def _fetch_purchase_links_from_film_page(url):
     série. On scanne tous les liens de la page plutôt que de dépendre d'un
     conteneur CSS précis, le marchand étant reconnu via le libellé du lien
     ou de son logo."""
-    try:
-        html = polite_get(url)
-    except Exception:
-        logger.warning("Fiche inaccessible, liens d'achat ignorés : %s", url)
-        return None, None
+    # Sans try/except : cf. la note dans purchase_links — un échec de
+    # chargement ne doit pas être enregistré comme « aucun lien ».
+    html = polite_get(url)
     soup = BeautifulSoup(html, "html.parser")
     return extract_purchase_links(soup)
 
 
-def enrich_with_affiliate_links(releases, cache_file, request_delay=0.35,
-                                max_lookups=MAX_LOOKUPS_PER_RUN):
+def enrich_with_affiliate_links(releases, cache_file, deadline=None):
     """Complète amazon_url/fnac_url pour les sorties Édition-Limitée.fr en
     visitant la fiche de chaque film (les boutons d'achat ne figurent pas
-    dans l'article mensuel). Une requête HTTP par fiche manquante, mise en
-    cache pour ne pas la refaire à chaque rafraîchissement."""
-    cache = load_json_cache(cache_file)
-    now = datetime.now(timezone.utc)
-    changed = False
-    lookups = 0
-
-    for r in releases:
-        if r.get("source") != SOURCE_NAME:
-            continue
-        if r.get("amazon_url") and r.get("fnac_url"):
-            continue
-        url = r.get("film_page_url")
-        if not url:
-            continue
-
-        entry = cache.get(url)
-        needs_lookup = entry is None
-        # Une entrée qui n'a trouvé qu'un des deux liens (ou aucun) est
-        # retentée passé le délai : le site complète parfois ses fiches.
-        incomplete = bool(entry) and not (entry.get("amazon_url") and entry.get("fnac_url"))
-        if entry and incomplete and entry.get("checked_at"):
-            try:
-                checked_at = datetime.fromisoformat(entry["checked_at"])
-                if now - checked_at > timedelta(days=RETRY_NOT_FOUND_AFTER_DAYS):
-                    needs_lookup = True
-            except ValueError:
-                needs_lookup = True
-
-        if needs_lookup:
-            if lookups >= max_lookups:
-                continue  # la suite sera récupérée au prochain rafraîchissement
-            amazon_url, fnac_url = _fetch_purchase_links_from_film_page(url)
-            cache[url] = {
-                "amazon_url": amazon_url,
-                "fnac_url": fnac_url,
-                "found": bool(amazon_url or fnac_url),
-                "checked_at": now.isoformat(),
-            }
-            changed = True
-            lookups += 1
-            time.sleep(request_delay)
-            entry = cache[url]
-
-        if entry.get("amazon_url") and not r.get("amazon_url"):
-            r["amazon_url"] = entry["amazon_url"]
-        if entry.get("fnac_url") and not r.get("fnac_url"):
-            r["fnac_url"] = entry["fnac_url"]
-
-    if changed:
-        save_json_cache(cache_file, cache)
-
-    concerned = [r for r in releases if r.get("source") == SOURCE_NAME]
-    matched = sum(1 for r in concerned if r.get("amazon_url") or r.get("fnac_url"))
-    logger.info(
-        "[%s] Liens d'achat : %d/%d sorties pourvues (%d fiches visitées ce tour)",
-        SOURCE_NAME, matched, len(concerned), lookups,
+    dans l'article mensuel). Toutes les fiches sont traitées dès le premier
+    tour ; c'est l'étalement des requêtes et le budget de temps qui évitent
+    le blocage, plus le plafond par tour d'avant."""
+    return purchase_links.enrich_releases(
+        releases, cache_file, SOURCE_NAME,
+        _fetch_purchase_links_from_film_page,
+        url_field="film_page_url", deadline=deadline,
     )
-    return releases
 
 
 def get_releases(month_articles_limit=3):

@@ -98,7 +98,8 @@
 
 <main>
   {% if upcoming %}
-    <section class="today-section slot-card full-width">
+    <div class="slots-row">
+    <section class="today-section slot-card">
       {% if today %}
         <h2>📅 Aujourd'hui ({{ today|length }})</h2>
         <div class="release-list grid-list">
@@ -115,7 +116,7 @@
       {% endif %}
     </section>
 
-    <section class="tomorrow-section slot-card full-width">
+    <section class="tomorrow-section slot-card">
       {% if tomorrow %}
         <h2>⏭️ Demain ({{ tomorrow|length }})</h2>
         <div class="release-list grid-list">
@@ -131,6 +132,7 @@
         </p>
       {% endif %}
     </section>
+    </div>
 
     <section>
       <h2>Toutes les prochaines sorties ({{ upcoming_rest|length }})</h2>
@@ -177,7 +179,7 @@
     {% for name, url in sources %}
       <a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a>{% if not loop.last %} et {% endif %}
     {% endfor %}
-    . Affiches fournies par <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDB</a> (cliquer sur une affiche ouvre sa fiche). Projet à usage personnel.
+    . Version du code : <code>{{ app_build }}</code>. Affiches fournies par <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDB</a> (cliquer sur une affiche ouvre sa fiche). Projet à usage personnel.
   </p>
 </footer>
 
@@ -204,9 +206,16 @@
 document.getElementById('refresh-btn').addEventListener('click', async () => {
   const btn = document.getElementById('refresh-btn');
   btn.disabled = true;
-  btn.textContent = '⏳ Mise à jour... (peut prendre 30s à 1min)';
+  btn.textContent = '⏳ Mise à jour... (plusieurs minutes au premier passage)';
   try {
-    await fetch('/api/refresh', { method: 'POST' });
+    const res = await fetch('/api/refresh', { method: 'POST' });
+    if (res.status === 409) {
+      // Un rafraîchissement de fond est déjà en cours : inutile d'en lancer
+      // un second, on recharge simplement pour voir où il en est.
+      btn.textContent = '⏳ Déjà en cours...';
+      setTimeout(() => location.reload(), 3000);
+      return;
+    }
     location.reload();
   } catch (e) {
     btn.textContent = '❌ Erreur';
