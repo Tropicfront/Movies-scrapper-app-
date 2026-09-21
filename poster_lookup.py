@@ -72,55 +72,93 @@ def _clean_query(title):
     return t or title
 
 
-def _search_tmdb(title, timeout=10):
-    query = _clean_query(title)
-    if not query:
-        return None
-    # Volontairement sans try/except : un échec réseau doit remonter, pour
-    # qu'il ne soit pas confondu avec « TMDB ne connaît pas ce titre » et
-    # gravé comme tel dans le cache.
+def _query_tmdb(query, language, timeout):
+    """Un appel à /search/multi. Volontairement sans try/except : un échec
+    réseau doit remonter, pour ne pas être confondu avec « TMDB ne connaît
+    pas ce titre » et gravé comme tel dans le cache."""
     resp = requests.get(
         TMDB_SEARCH_URL,
         params={
             "api_key": TMDB_API_KEY,
             "query": query,
-            "language": TMDB_LANGUAGE,
+            "language": language,
             "include_adult": "false",
         },
         timeout=timeout,
     )
     resp.raise_for_status()
-    results = resp.json().get("results", [])
+    return resp.json().get("results", [])
 
+
+def _result_year(result):
+    date = result.get("release_date") or result.get("first_air_date") or ""
+    try:
+        return int(date[:4])
+    except (ValueError, TypeError):
+        return None
+
+
+def _rank(result, year):
+    """Plus la valeur est basse, meilleur est le résultat. L'année, quand le
+    titre en portait une, primait sur la popularité : c'est ce qui permet de
+    distinguer un remake de l'original, ou un film très courant parmi les
+    homonymes. Une année qui ne correspond à rien ne fait jamais rejeter le
+    résultat, elle le fait seulement passer derrière."""
+    found = _result_year(result)
+    if year and found:
+        if found == year:
+            return 0
+        if abs(found - year) <= 1:   # décalage sortie salle / fiche TMDB
+            return 1
+        return 3
+    return 2
+
+
+def _pick_best(results, year):
     candidates = [
         r for r in results
         if r.get("media_type") in ("movie", "tv") and r.get("poster_path")
     ]
     if not candidates:
         return None
-
-    candidates.sort(key=lambda r: r.get("popularity", 0), reverse=True)
+    candidates.sort(key=lambda r: (_rank(r, year), -(r.get("popularity") or 0)))
     best = candidates[0]
     return {
         "poster_url": TMDB_IMAGE_BASE + best["poster_path"],
         "page_url": f"{TMDB_SITE_BASE}/{best['media_type']}/{best['id']}",
         "tmdb_id": best["id"],
         "media_type": best["media_type"],
+        "year": _result_year(best),
     }
 
 
+def _search_tmdb(title, year=None, timeout=10):
+    query = _clean_query(title)
+    if not query:
+        return None
+
+    best = _pick_best(_query_tmdb(query, TMDB_LANGUAGE, timeout), year)
+    if best is None and not TMDB_LANGUAGE.lower().startswith("en"):
+        # Une partie du catalogue (cinéma asiatique, éditeurs de niche)
+        # n'a pas de fiche ni d'affiche en français : plutôt que de
+        # conclure « inconnu », on retente sans forcer la langue.
+        best = _pick_best(_query_tmdb(query, "en-US", timeout), year)
+    return best
+
+
 def _search_candidates(release):
-    """Titres à essayer sur TMDB pour une sortie, du plus probable au moins
-    probable. Un seul essai pour un titre simple ; plusieurs pour un
-    coffret, dont le titre tel qu'écrit par le site source est introuvable
-    dans TMDB."""
+    """(titres à essayer, année) pour une sortie. Les titres vont du plus
+    probable au moins probable : un seul essai pour un titre simple,
+    plusieurs pour un coffret, dont le titre tel qu'écrit par le site
+    source est introuvable dans TMDB. L'année, si le titre en portait une,
+    ne fait pas partie du texte cherché mais sert à trier les résultats."""
     analysis = analyze_title(release.get("title", ""), release.get("details", ""))
     candidates = list(analysis["search_titles"])
     raw = (release.get("title") or "").strip()
     if raw and raw not in candidates:
         candidates.append(raw)
     # Plafond : évite de marteler l'API sur un titre très découpé
-    return candidates[:5]
+    return candidates[:6], analysis["year"]
 
 
 MAX_CONSECUTIVE_FAILURES = 3
@@ -173,10 +211,11 @@ def enrich_with_posters(releases, cache_file, request_delay=0.25,
             result = None
             tried = []
             failed = None
-            for candidate in _search_candidates(r):
+            candidates, year = _search_candidates(r)
+            for candidate in candidates:
                 tried.append(candidate)
                 try:
-                    result = search_fn(candidate)
+                    result = search_fn(candidate, year=year)
                 except Exception as exc:  # noqa: BLE001
                     failed = exc
                     break
@@ -203,7 +242,8 @@ def enrich_with_posters(releases, cache_file, request_delay=0.25,
                 cache[key] = {**result, "query": tried[-1], "found": True,
                               "checked_at": now.isoformat()}
             else:
-                logger.info("TMDB : rien trouvé pour %r (essais : %s)", title, tried)
+                logger.info("TMDB : rien trouvé pour %r (essais : %s%s)",
+                            title, tried, f", année {year}" if year else "")
                 cache[key] = {"found": False, "checked_at": now.isoformat()}
             entry = cache[key]
 

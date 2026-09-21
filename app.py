@@ -37,7 +37,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-21.2"
+APP_BUILD = "2026-09-21.3"
 
 # Durée maximale d'un rafraîchissement. Au-delà, ce qui reste à récupérer
 # est repris par un passage de rattrapage programmé peu après, plutôt que
@@ -523,8 +523,10 @@ def widget_day(day_iso):
     # Signalé aussi dans la fenêtre, pour qu'on sache à quelle sortie
     # correspond la pastille steelbook de la case du calendrier.
     for r in releases:
-        r["is_steelbook"] = _is_steelbook(r)
-        r["is_boxset"] = _is_boxset(r)
+        tags = _edition_tags(r)
+        r["is_boxset"] = "coffret" in tags
+        r["is_steelbook"] = "steelbook" in tags
+        r["is_fnac_exclusive"] = "fnac" in tags
 
     return render_template("widget_day.html", releases=releases)
 
@@ -545,11 +547,10 @@ def _releases_for_scope(data, scope):
 # Ordre d'affichage des sorties à l'intérieur d'une même journée
 _CATEGORY_ORDER = {"4k": 0, "bluray": 1, "dvd": 2, "autre": 3}
 
-# Les éditions steelbook ne sont pas un format de support : l'information se
-# trouve dans le titre ou le descriptif ("Édition Steelbook", "Steel Book").
-# Elle mérite sa propre pastille, puisque c'est souvent le critère d'achat.
-_STEELBOOK_RE = re.compile(r"steel\s*-?\s*book", re.IGNORECASE)
-
+# Caractéristiques d'édition, lues dans le titre par title_parser : ni les
+# coffrets, ni les steelbooks, ni les exclusivités Fnac n'ont de champ dédié
+# sur les sites source. Chacune a sa pastille, ce sont souvent les critères
+# d'achat.
 _MARKER_LABELS = {
     "4k": "4K Ultra HD",
     "bluray": "Blu-ray",
@@ -557,16 +558,17 @@ _MARKER_LABELS = {
     "autre": "Autre format",
     "coffret": "Coffret",
     "steelbook": "Steelbook",
+    "fnac": "Exclusivité Fnac",
 }
 
-
-def _is_steelbook(r):
-    return bool(_STEELBOOK_RE.search(
-        f"{r.get('title', '')} {r.get('details', '')} {r.get('format', '')}"))
+# Étiquettes d'édition, dans leur ordre d'affichage après les formats
+_EDITION_MARKERS = ("coffret", "steelbook", "fnac")
 
 
-def _is_boxset(r):
-    return title_parser.is_boxset(r.get("title", ""), r.get("details", ""))
+def _edition_tags(r):
+    """Étiquettes d'édition d'une sortie : coffret / steelbook / fnac."""
+    return set(title_parser.analyze_title(
+        r.get("title", ""), r.get("details", ""))["tags"])
 
 
 def _day_markers(releases):
@@ -577,10 +579,12 @@ def _day_markers(releases):
         {r.get("format_category", "autre") for r in releases},
         key=lambda c: _CATEGORY_ORDER.get(c, 9),
     )
-    if any(_is_boxset(r) for r in releases):
-        markers.append("coffret")
-    if any(_is_steelbook(r) for r in releases):
-        markers.append("steelbook")
+    # Une seule analyse de titre par sortie, les trois étiquettes en sortant
+    # ensemble (la grille appelle cette fonction pour chaque case du mois).
+    tags = set()
+    for r in releases:
+        tags |= _edition_tags(r)
+    markers.extend(m for m in _EDITION_MARKERS if m in tags)
     return markers
 
 

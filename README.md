@@ -126,10 +126,13 @@ Chaque jour porte une **pastille par format** présent ce jour-là :
 | point gris | format non reconnu |
 | carré orange | au moins un **coffret** ce jour-là |
 | anneau vert | au moins une édition **steelbook** ce jour-là |
+| losange jaune | au moins une **exclusivité Fnac** ce jour-là |
 
-Le coffret est un carré et le steelbook un anneau, plutôt que des points
-pleins comme les formats : la forme évite qu'on les lise comme un support
-de plus. Elle se déclenche sur « steelbook » ou « steel
+Les caractéristiques d'édition ont chacune leur forme — carré pour le
+coffret, anneau pour le steelbook, losange pour l'exclusivité Fnac —
+plutôt que des points pleins comme les formats : la forme évite qu'on les
+lise comme un support de plus. « Steelcase » est reconnu comme une graphie
+de « steelbook ». Elle se déclenche sur « steelbook » ou « steel
 book » trouvé dans le titre, le descriptif ou le format, et le badge
 correspondant réapparaît dans la fenêtre du jour pour identifier de quelle
 sortie il s'agit. Le détail (nombre de sorties et liste des formats)
@@ -193,6 +196,21 @@ formulation du titre. `title_parser.py` en tire deux choses.
   « 1 à 7 » : plusieurs numéros, donc plusieurs films dans la boîte ;
 - plusieurs titres réunis par `+` — « Rio Bravo + La Prisonnière du désert ».
 
+**Les étiquettes**, inutiles à TMDB mais utiles à l'affichage : format
+(`4K`, `Blu-ray`, `DVD`), `Steelbook` (ou `Steelcase`), `Fnac` — qui
+désigne une édition exclusive à l'enseigne — et coffret. Toutes sont
+retirées du texte envoyé à TMDB.
+
+**L'année**, quand le titre en porte une (`Scary Movie 2026 4K`,
+`Running Man 1987 4K Steelbook`). Elle est retirée de la requête — TMDB la
+chercherait dans le titre et ne trouverait rien — et sert à trier les
+résultats : une année exacte passe devant un homonyme plus populaire, ce
+qui départage les remakes. Une année qui ne correspond à aucun résultat ne
+fait jamais rejeter la recherche, elle se contente de ne pas départager.
+L'extraction est bornée à `19[2-9]\d` et `20[0-2]\d`, et ignorée quand
+l'année ouvre le titre : `1917`, `2001 : L'Odyssée de l'espace` et
+`Blade Runner 2049` restent intacts.
+
 **Les titres à demander à TMDB.** Un titre de coffret n'existe pas dans
 TMDB : « Coffret The Eye 1 et 2 4K » n'y donne jamais rien, « The Eye » si.
 Le module produit donc une liste de candidats, du plus probable au moins
@@ -207,12 +225,27 @@ affiche (5 essais au maximum) :
 | `Freddy – L'intégrale 1 à 7` | oui | Freddy |
 | `Bleach : Thousand-Year Blood War - Partie 3` | non | Bleach : Thousand-Year Blood War, Bleach |
 | `Star Trek : La série Originale` | non | Star Trek |
+| `Scary Movie 2026 4K` | non | Scary Movie *(année 2026)* |
+| `Obsession 4K Steelcase Fnac` | non | Obsession |
+| `Coffret Monte-Cristo Les Trois Mousquetaires 4k` | oui | le titre entier, puis Monte-Cristo, Les Trois Mousquetaires |
 
 Ce qui distingue les deux dernières lignes : « La série Originale » est un
 descriptif d'édition, retiré pour ne garder que « Star Trek », alors que
 « Thousand-Year Blood War » est un vrai sous-titre, conservé. La liste des
 descriptifs reconnus (`_DESCRIPTOR_RE`) est donc le point à compléter quand
 un titre est mal découpé.
+
+Un coffret dont les films sont collés sans séparateur est coupé devant un
+déterminant français capitalisé rencontré en cours de titre
+(`Monte-Cristo Les Trois Mousquetaires`). Ces morceaux ne sont proposés
+qu'**après** le titre entier, et uniquement pour un titre déjà reconnu
+comme coffret : un `la` ou `le` en minuscules ne déclenche rien, donc
+`Le Bon, la Brute et le Truand` est préservé.
+
+Enfin, si une recherche en français ne donne rien, elle est retentée sans
+forcer la langue : une partie du catalogue (cinéma asiatique, éditeurs de
+niche) n'a ni fiche ni affiche en français, et `Sailor Suit and the Machine
+Gun` ne remontait pour cette seule raison.
 
 Les séparateurs `+` et `/` ne sont pris en compte qu'entourés d'espaces,
 pour ne pas couper « Fast & Furious » ni « Face/Off », et la plage de
@@ -221,7 +254,7 @@ numéros n'est cherchée qu'en fin de titre, pour ne pas se déclencher sur
 
 Le fichier est exécutable pour vérifier une modification :
 ```bash
-python title_parser.py     # 14 cas de test, dont les titres simples à ne pas abîmer
+python title_parser.py     # 24 cas de test, dont les titres simples à ne pas abîmer
 ```
 
 ## Affiches (TMDB)

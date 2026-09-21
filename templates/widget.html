@@ -169,6 +169,16 @@
     background: #f0932b;
     border-radius: 2px;
   }
+  /* Exclusivité Fnac : losange jaune, une quatrième forme pour rester
+     distinguable des ronds (formats), du carré (coffret) et de l'anneau
+     (steelbook). */
+  .day-marker.m-fnac {
+    background: #ffd200;
+    border-radius: 1px;
+    transform: rotate(45deg);
+    width: 5px;
+    height: 5px;
+  }
   .modal-loading, .ev-empty {
     padding: 18px 12px;
     text-align: center;
@@ -309,6 +319,7 @@
   .badge.cat-dvd    { background: #3a1c1c; color: #ffb3b3; }
   .badge.cat-autre  { background: #2a2e38; color: #ccc; }
   .badge.box        { background: #3d2a10; color: #f8c471; }
+  .badge.fnac       { background: #3d3a10; color: #ffe066; }
   .badge.steel      { background: #10352b; color: #6ee7b7; }
   .badge.src        { background: #263042; color: #8fb8e8; font-weight: 600; }
   .badge.jf         { background: #22331f; color: #a3d977; font-weight: 600; }
