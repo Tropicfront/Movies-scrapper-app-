@@ -15,6 +15,8 @@
     --accent-2: #4c9be8;
     --today-bg: {{ '#fff6e0' if theme == 'light' else '#2a2410' }};
     --modal-bg: {{ '#ffffff' if theme == 'light' else '#14171d' }};
+    --owned: {{ '#3aa76d' if theme == 'light' else '#5bd99a' }};
+    --owned-bg: {{ '#e8f7ef' if theme == 'light' else '#10291d' }};
     --weekend: {{ '#d94f4f' if theme == 'light' else '#e05252' }};
     --backdrop: {{ 'rgba(255,255,255,0.75)' if theme == 'light' else 'rgba(0,0,0,0.72)' }};
   }
@@ -131,6 +133,26 @@
     background: var(--today-bg);
     box-shadow: 0 0 0 1px rgba(232, 182, 76, 0.25);
   }
+  /* Jour dont au moins une sortie est déjà dans la bibliothèque Jellyfin :
+     même traitement que le jour courant, en vert clair. */
+  .day-cell.owned {
+    border-color: var(--owned);
+    background: var(--owned-bg);
+    box-shadow: 0 0 0 1px rgba(91, 217, 154, 0.22);
+  }
+  /* Les deux à la fois : fondu de l'un vers l'autre, sur le fond comme sur
+     le contour. La bordure dégradée passe par deux fonds superposés —
+     l'un rogné à la boîte intérieure, l'autre à la bordure — seule
+     technique qui conserve les coins arrondis. */
+  .day-cell.today.owned {
+    border-color: transparent;
+    background-image:
+      linear-gradient(135deg, var(--today-bg), var(--owned-bg)),
+      linear-gradient(135deg, var(--accent), var(--owned));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: none;
+  }
   .day-cell.today .day-num { color: var(--accent); font-weight: 800; }
   /* Le week-end reste rouge, sauf si c'est aujourd'hui : le doré prime */
   .week .day-cell.today:nth-child(6) .day-num,
@@ -158,17 +180,14 @@
   .day-marker.m-bluray    { background: #4c9be8; }
   .day-marker.m-dvd       { background: #e05252; }
   .day-marker.m-autre     { background: #7b8495; }
-  /* Steelbook : anneau, et coffret : carré. Des formes différentes des
-     pastilles de format (pleines et rondes), pour qu'on ne les prenne pas
-     pour un quatrième support. */
+  /* Le coffret est un rond orange comme les formats ; le steelbook garde
+     l'anneau et l'exclusivité Fnac le losange, pour rester lisibles côte
+     à côte. */
   .day-marker.m-steelbook {
     background: transparent;
     border: 1.5px solid #3ddc97;
   }
-  .day-marker.m-coffret {
-    background: #f0932b;
-    border-radius: 2px;
-  }
+  .day-marker.m-coffret { background: #f0932b; }
   /* Exclusivité Fnac : losange jaune, une quatrième forme pour rester
      distinguable des ronds (formats), du carré (coffret) et de l'anneau
      (steelbook). */
@@ -356,7 +375,7 @@
       {% for week in month.weeks %}
         <div class="week">
           {% for cell in week %}
-            <div class="day-cell {{ '' if cell.in_month else 'out-month' }} {{ 'today' if cell.date_iso == today_iso else '' }} {{ 'has-releases' if cell.releases else '' }}"
+            <div class="day-cell {{ '' if cell.in_month else 'out-month' }} {{ 'today' if cell.date_iso == today_iso else '' }} {{ 'owned' if cell.in_jellyfin else '' }} {{ 'has-releases' if cell.releases else '' }}"
                  data-date="{{ cell.date_iso }}"
                  data-label="{{ cell.label }}"
                  data-count="{{ cell.releases|length }}"

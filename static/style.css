@@ -69,40 +69,77 @@ header h1 { margin: 0 0 8px; font-size: 1.8rem; }
 }
 #toggle-jellyfin-btn:hover { border-color: var(--accent-2); color: var(--accent-2); }
 
-.calendar-link {
-  max-width: 700px;
+/* --- Tutoriel Homarr : petites pages qui défilent ------------------- */
+.howto {
+  max-width: 640px;
   margin: 0 auto;
-  padding: 14px 16px;
+  padding: 14px 16px 10px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
-  font-size: 0.8rem;
-  color: var(--text-dim);
+  text-align: left;
 }
-.calendar-link-row {
+.howto-intro {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  text-align: center;
+}
+/* Toutes les étapes occupent la même case de la grille : la hauteur du
+   bloc est celle de la plus longue, donc rien ne saute quand on change
+   de page. */
+.howto-steps { display: grid; }
+.howto-step {
+  grid-area: 1 / 1;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  padding-left: 40px;
+  position: relative;
+}
+.howto-step.active { visibility: visible; opacity: 1; }
+.howto-num {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #1a1a1a;
+  font-weight: 800;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.howto-step h3 {
+  margin: 3px 0 6px;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+.howto-step p {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.howto-url-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: center;
-  margin-top: 8px;
+  margin: 8px 0;
 }
-.cal-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.cal-dot.cat-4k { background: #9b59f6; }
-.cal-dot.cat-bluray { background: #4c9be8; }
-.calendar-link code {
+.howto-url-row code {
   background: #0a0c10;
   color: var(--accent-2);
-  padding: 4px 8px;
+  padding: 5px 9px;
   border-radius: 6px;
   word-break: break-all;
+  font-size: 0.82rem;
 }
-.calendar-link button {
+.copy-url-btn {
   background: var(--accent-2);
   color: #0a0c10;
   border: none;
@@ -112,16 +149,63 @@ header h1 { margin: 0 0 8px; font-size: 1.8rem; }
   cursor: pointer;
   font-size: 0.78rem;
 }
-.calendar-link-alt {
-  margin-top: 10px;
-  text-align: center;
+.howto-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 6px;
 }
-.calendar-link-alt summary {
+.howto-nav button {
+  background: transparent;
+  border: 1px solid var(--card-border);
+  color: var(--text);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
   cursor: pointer;
-  color: var(--text-dim);
-  font-size: 0.75rem;
+  line-height: 1;
 }
-.calendar-link-alt summary:hover { color: var(--accent-2); }
+.howto-nav button:hover { border-color: var(--accent); color: var(--accent); }
+.howto-dots { display: flex; gap: 6px; }
+.howto-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--card-border);
+  cursor: pointer;
+}
+.howto-dot.active { background: var(--accent); }
+
+/* --- Barre de tri et de filtrage ------------------------------------ */
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.sort-bar select {
+  margin-left: 6px;
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+}
+.sort-bar select:hover { border-color: var(--accent-2); }
+.sort-count { margin-left: auto; }
+.release-card.hidden, .date-header.hidden { display: none; }
+/* La date n'apparaît sur la fiche qu'en affichage à plat, où les en-têtes
+   de jour ont disparu (ou quand la fiche la demande explicitement). */
+.card-date { display: none; }
+.card-date.always { display: block; }
+.release-list.flat .card-date { display: block; }
 
 /* La zone de contenu occupe toute la largeur disponible (avec une marge
    latérale qui s'adapte), pour que les blocs "Aujourd'hui" et "Demain"
@@ -362,3 +446,15 @@ footer {
   border-top: 1px solid var(--card-border);
 }
 footer a { color: var(--accent-2); }
+
+/* --- Badges d'édition (coffret / steelbook / exclu Fnac) ------------- */
+.edition-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.edition-badge.box   { background: #3d2a10; color: #f8c471; }
+.edition-badge.steel { background: #10352b; color: #6ee7b7; }
+.edition-badge.fnac  { background: #3d3a10; color: #ffe066; }

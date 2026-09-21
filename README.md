@@ -37,6 +37,13 @@ une comparaison de titres normalisée (accents/mentions de format retirés).
 
 ## Calendrier pour dashboard (Homarr / Homepage)
 
+> Le widget iFrame (`/widget/upcoming`) est la méthode recommandée, et la
+> seule présentée sur la page web. Les flux iCal décrits plus bas restent
+> servis par l'application — utiles pour un agenda de téléphone — mais ils
+> n'apparaissent plus dans l'interface, l'iFrame étant plus lisible et plus
+> riche (affiches, formats, boutons d'achat).
+
+
 Deux flux, un par format :
 ```
 http://<ton-serveur>:8080/calendar-4k.ics       (sorties 4K Ultra HD)
@@ -128,10 +135,14 @@ Chaque jour porte une **pastille par format** présent ce jour-là :
 | anneau vert | au moins une édition **steelbook** ce jour-là |
 | losange jaune | au moins une **exclusivité Fnac** ce jour-là |
 
-Les caractéristiques d'édition ont chacune leur forme — carré pour le
-coffret, anneau pour le steelbook, losange pour l'exclusivité Fnac —
-plutôt que des points pleins comme les formats : la forme évite qu'on les
-lise comme un support de plus. « Steelcase » est reconnu comme une graphie
+Le jour courant est cerclé d'or, un jour dont au moins une sortie figure
+déjà dans la bibliothèque Jellyfin est cerclé de vert clair, et quand les
+deux se cumulent le contour et le fond passent en dégradé de l'un vers
+l'autre.
+
+Le coffret est un rond orange, comme les formats ; le steelbook garde son
+anneau et l'exclusivité Fnac son losange, pour rester distinguables côte à
+côte. « Steelcase » est reconnu comme une graphie
 de « steelbook ». Elle se déclenche sur « steelbook » ou « steel
 book » trouvé dans le titre, le descriptif ou le format, et le badge
 correspondant réapparaît dans la fenêtre du jour pour identifier de quelle
@@ -396,6 +407,7 @@ volumes:
 - `GET /api/jellyfin/status` — vérifie la connexion à Jellyfin
 - `GET /api/affiliate-links/status` — diagnostic des liens Amazon/Fnac (nombre de sorties avec/sans lien, par source)
 - `POST /api/refresh` — force un rafraîchissement immédiat
+- `GET /` — la page web propose un tutoriel paginé d'installation du widget dans Homarr (l'adresse y est complétée automatiquement d'après celle par laquelle la page est consultée), et un tri/filtre de la liste complète (par date, titre ou format ; filtres 4K, Blu-ray/DVD, coffrets, steelbooks, exclusivités Fnac, déjà possédés)
 - `GET /widget/day/<AAAA-MM-JJ>` — fragment HTML des sorties d'une journée, utilisé par le widget au clic sur une case (accepte les mêmes `?category=` et `?jellyfin=`)
 - `GET /api/debug/calendar` — diagnostic du calendrier : contenu du cache mois par mois et jour par jour, date vue par le conteneur, plage de dates couverte
 - `GET /health` — healthcheck (renvoie aussi `build`, le marqueur de version du code en cours d'exécution)

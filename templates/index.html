@@ -25,14 +25,22 @@
 {% endmacro %}
 
 {% macro release_card(r, extra_class='', show_date=False) %}
-  <div class="release-card {{ extra_class }}" data-jellyfin="{{ 'yes' if r.in_jellyfin else 'no' }}" data-category="{{ r.format_category or 'autre' }}">
+  <div class="release-card {{ extra_class }}"
+       data-jellyfin="{{ 'yes' if r.in_jellyfin else 'no' }}"
+       data-category="{{ r.format_category or 'autre' }}"
+       data-date="{{ r.date_iso or '9999-12-31' }}"
+       data-title="{{ (r.title or '')|lower }}"
+       data-tags="{{ (r.edition_tags or [])|join(' ') }}">
     {{ poster(r) }}
     <div class="release-info">
-      {% if show_date %}<span class="date">{{ r.date_text }}</span>{% endif %}
+      <span class="date card-date {{ 'always' if show_date }}">{{ r.date_text }}</span>
       <a href="{{ r.url }}" target="_blank" rel="noopener" class="title">{{ r.title }}</a>
       <span class="details">{{ r.details }}</span>
       <div class="badges">
         {{ category_badge(r) }}
+        {% if 'coffret' in (r.edition_tags or []) %}<span class="edition-badge box">Coffret</span>{% endif %}
+        {% if 'steelbook' in (r.edition_tags or []) %}<span class="edition-badge steel">Steelbook</span>{% endif %}
+        {% if 'fnac' in (r.edition_tags or []) %}<span class="edition-badge fnac">Exclu Fnac</span>{% endif %}
         <span class="source-badge">{{ r.source }}</span>
         {% if r.in_jellyfin %}<span class="jellyfin-badge">📀 Déjà dans Jellyfin</span>{% endif %}
       </div>
@@ -70,23 +78,43 @@
     {% endif %}
   </div>
 
-  <div class="calendar-link">
-    📅 Flux calendrier pour dashboard (Homarr / Homepage, intégration "iCal") — sorties 4K et Blu-ray/DVD mélangées, triées par date (🟣 4K, 🔵 Blu-ray, 🔴 DVD) :
-    <div class="calendar-link-row">
-      <code class="ics-url" data-path="/calendar.ics"></code>
-      <button class="copy-ics-btn" type="button">Copier</button>
+  <div class="howto" id="howto">
+    <p class="howto-intro">📺 Ajouter le calendrier à ton dashboard Homarr, en 4 étapes :</p>
+    <div class="howto-steps">
+      <article class="howto-step active">
+        <span class="howto-num">1</span>
+        <h3>Activez le mode édition</h3>
+        <p>Sur votre tableau de bord Homarr, cliquez sur l'icône d'édition (crayon).</p>
+      </article>
+      <article class="howto-step">
+        <span class="howto-num">2</span>
+        <h3>Ajoutez un nouvel élément</h3>
+        <p>Cliquez sur le bouton pour ajouter un élément.</p>
+      </article>
+      <article class="howto-step">
+        <span class="howto-num">3</span>
+        <h3>Sélectionnez le widget iFrame</h3>
+        <p>Cherchez et choisissez l'élément iFrame dans la liste des éléments disponibles.</p>
+      </article>
+      <article class="howto-step">
+        <span class="howto-num">4</span>
+        <h3>Configurez l'URL</h3>
+        <p>Dans les paramètres du widget, renseignez cette adresse :</p>
+        {# L'adresse est complétée en JS depuis location.origin : elle est
+           donc toujours celle par laquelle tu consultes cette page, sans
+           avoir à écrire l'IP ni le port à la main. #}
+        <div class="howto-url-row">
+          <code class="widget-url" data-path="/widget/upcoming"></code>
+          <button class="copy-url-btn" type="button">Copier</button>
+        </div>
+        <p>Puis sauvegardez vos modifications pour quitter le mode édition.</p>
+      </article>
     </div>
-    <details class="calendar-link-alt">
-      <summary>Ou deux flux séparés (un par format, pour avoir des couleurs différentes — voir le README)</summary>
-      <div class="calendar-link-row">
-        <span class="cal-dot cat-4k"></span> <code class="ics-url" data-path="/calendar-4k.ics"></code>
-        <button class="copy-ics-btn" type="button">Copier</button>
-      </div>
-      <div class="calendar-link-row">
-        <span class="cal-dot cat-bluray"></span> <code class="ics-url" data-path="/calendar-bluray.ics"></code>
-        <button class="copy-ics-btn" type="button">Copier</button>
-      </div>
-    </details>
+    <div class="howto-nav">
+      <button class="howto-prev" type="button" aria-label="Étape précédente">&lsaquo;</button>
+      <span class="howto-dots"></span>
+      <button class="howto-next" type="button" aria-label="Étape suivante">&rsaquo;</button>
+    </div>
   </div>
 
   {% if errors %}
@@ -136,6 +164,27 @@
 
     <section>
       <h2>Toutes les prochaines sorties ({{ upcoming_rest|length }})</h2>
+      <div class="sort-bar">
+        <label>Trier par
+          <select id="sort-select">
+            <option value="date">Date</option>
+            <option value="title">Titre (A→Z)</option>
+            <option value="format">Format</option>
+          </select>
+        </label>
+        <label>Afficher
+          <select id="filter-select">
+            <option value="all">Tout</option>
+            <option value="4k">4K Ultra HD</option>
+            <option value="bluray">Blu-ray / DVD</option>
+            <option value="coffret">Coffrets</option>
+            <option value="steelbook">Steelbooks</option>
+            <option value="fnac">Exclusivités Fnac</option>
+            <option value="owned">Déjà dans Jellyfin</option>
+          </select>
+        </label>
+        <span class="sort-count" id="sort-count"></span>
+      </div>
       <div class="release-list stacked" id="upcoming-list">
         {% set ns = namespace(last_date="") %}
         {% for r in upcoming_rest %}
@@ -179,16 +228,19 @@
     {% for name, url in sources %}
       <a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a>{% if not loop.last %} et {% endif %}
     {% endfor %}
-    . Version du code : <code>{{ app_build }}</code>. Affiches fournies par <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDB</a> (cliquer sur une affiche ouvre sa fiche). Projet à usage personnel.
+    . Version du code : <code>{{ app_build }}</code>. Affiches fournies par <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDB</a>. Projet à usage personnel.
   </p>
 </footer>
 
 <script>
+// --- Tutoriel Homarr : adresse complétée + navigation entre les étapes
 (function () {
-  document.querySelectorAll('.ics-url').forEach(el => {
+  // L'adresse du widget vient de location.origin : c'est exactement celle
+  // par laquelle la page est consultée, IP et port compris.
+  document.querySelectorAll('.widget-url').forEach(el => {
     el.textContent = window.location.origin + el.dataset.path;
   });
-  document.querySelectorAll('.copy-ics-btn').forEach(btn => {
+  document.querySelectorAll('.copy-url-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const code = btn.previousElementSibling;
       try {
@@ -197,10 +249,111 @@
         btn.textContent = '✅ Copié !';
         setTimeout(() => { btn.textContent = original; }, 1800);
       } catch (e) {
-        alert('Lien du calendrier : ' + code.textContent);
+        alert('Adresse du widget : ' + code.textContent);
       }
     });
   });
+
+  const steps = Array.from(document.querySelectorAll('.howto-step'));
+  if (!steps.length) return;
+  const dotsBox = document.querySelector('.howto-dots');
+  const prev = document.querySelector('.howto-prev');
+  const next = document.querySelector('.howto-next');
+  let current = 0;
+
+  const dots = steps.map((_, i) => {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'howto-dot';
+    dot.setAttribute('aria-label', 'Étape ' + (i + 1));
+    dot.addEventListener('click', () => show(i));
+    dotsBox.appendChild(dot);
+    return dot;
+  });
+
+  function show(index) {
+    current = (index + steps.length) % steps.length;
+    steps.forEach((s, i) => s.classList.toggle('active', i === current));
+    dots.forEach((d, i) => d.classList.toggle('active', i === current));
+  }
+  prev.addEventListener('click', () => show(current - 1));
+  next.addEventListener('click', () => show(current + 1));
+  show(0);
+})();
+
+// --- Tri et filtrage de la liste complète
+(function () {
+  const list = document.getElementById('upcoming-list');
+  const sortSelect = document.getElementById('sort-select');
+  const filterSelect = document.getElementById('filter-select');
+  if (!list || !sortSelect) return;
+
+  const countLabel = document.getElementById('sort-count');
+  // Ordre d'origine (en-têtes de date et fiches entremêlés), pour pouvoir
+  // revenir au regroupement par jour sans recharger la page.
+  const original = Array.from(list.children);
+  const cards = original.filter(el => el.classList.contains('release-card'));
+  const CATEGORY_ORDER = { '4k': 0, bluray: 1, dvd: 2, autre: 3 };
+
+  function matches(card, filter) {
+    const tags = (card.dataset.tags || '').split(' ');
+    switch (filter) {
+      case '4k': return card.dataset.category === '4k';
+      case 'bluray': return card.dataset.category !== '4k';
+      case 'owned': return card.dataset.jellyfin === 'yes';
+      case 'all': return true;
+      default: return tags.includes(filter);
+    }
+  }
+
+  function apply() {
+    const sort = sortSelect.value;
+    const filter = filterSelect.value;
+    let visible = 0;
+
+    cards.forEach(card => {
+      const ok = matches(card, filter);
+      card.classList.toggle('hidden', !ok);
+      if (ok) visible++;
+    });
+
+    if (sort === 'date') {
+      list.classList.remove('flat');
+      original.forEach(el => list.appendChild(el));
+      // Un en-tête de jour dont toutes les fiches sont masquées par le
+      // filtre doit disparaître aussi, sinon la liste garde des titres
+      // de date vides.
+      let header = null, headerHasVisible = false;
+      original.forEach(el => {
+        if (el.classList.contains('date-header')) {
+          if (header) header.classList.toggle('hidden', !headerHasVisible);
+          header = el;
+          headerHasVisible = false;
+        } else if (!el.classList.contains('hidden')) {
+          headerHasVisible = true;
+        }
+      });
+      if (header) header.classList.toggle('hidden', !headerHasVisible);
+    } else {
+      // À plat : les en-têtes de date sortent, chaque fiche affiche sa date
+      list.classList.add('flat');
+      const sorted = cards.slice().sort((a, b) => {
+        if (sort === 'title') {
+          return a.dataset.title.localeCompare(b.dataset.title, 'fr');
+        }
+        const ca = CATEGORY_ORDER[a.dataset.category] ?? 9;
+        const cb = CATEGORY_ORDER[b.dataset.category] ?? 9;
+        if (ca !== cb) return ca - cb;
+        return a.dataset.date.localeCompare(b.dataset.date);
+      });
+      sorted.forEach(card => list.appendChild(card));
+    }
+
+    countLabel.textContent = filter === 'all' ? '' : visible + ' sur ' + cards.length;
+  }
+
+  sortSelect.addEventListener('change', apply);
+  filterSelect.addEventListener('change', apply);
 })();
 
 document.getElementById('refresh-btn').addEventListener('click', async () => {

@@ -37,7 +37,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-21.3"
+APP_BUILD = "2026-09-21.4"
 
 # Durée maximale d'un rafraîchissement. Au-delà, ce qui reste à récupérer
 # est repris par un passage de rattrapage programmé peu après, plutôt que
@@ -302,10 +302,12 @@ def get_sorted_releases():
     today_releases = [r for r in dated if r["date_iso"] == today_str]
     tomorrow_releases = [r for r in dated if r["date_iso"] == tomorrow_str]
 
-    # La liste "Toutes les prochaines sorties" exclut les sorties du jour
-    # même (déjà affichées dans la section "Aujourd'hui" juste au-dessus,
-    # pas besoin de les montrer deux fois).
-    upcoming_rest = [r for r in upcoming if r["date_iso"] != today_str]
+    # La liste "Toutes les prochaines sorties" exclut les sorties déjà
+    # affichées juste au-dessus, dans "Aujourd'hui" ET dans "Demain" :
+    # seule la date du jour était écartée, si bien que les sorties du
+    # lendemain apparaissaient deux fois.
+    upcoming_rest = [r for r in upcoming
+                     if r["date_iso"] not in (today_str, tomorrow_str)]
 
     return {
         "updated_at": cache.get("updated_at"),
@@ -341,6 +343,11 @@ def _filter_releases(releases, only_jellyfin=False, category=None):
 @app.route("/")
 def index():
     data = get_sorted_releases()
+    # Étiquettes d'édition calculées une fois ici : toutes les listes de la
+    # page pointent sur les mêmes dicts que `dated`, une seule passe suffit
+    # donc. Elles servent aux badges et au système de tri/filtre du site.
+    for r in data["dated"] + data["undated"]:
+        r["edition_tags"] = sorted(_edition_tags(r))
     return render_template(
         "index.html",
         today=data["today"],
@@ -594,7 +601,11 @@ def _day_hint(releases, markers):
     count = len(releases)
     label = f"{count} sortie{'s' if count > 1 else ''}"
     formats = ", ".join(_MARKER_LABELS.get(m, m) for m in markers)
-    return f"{label} — {formats}" if formats else label
+    hint = f"{label} — {formats}" if formats else label
+    owned = sum(1 for r in releases if r.get("in_jellyfin"))
+    if owned:
+        hint += f" — {owned} déjà dans Jellyfin"
+    return hint
 
 
 def _build_calendar_months(releases, today_iso=None):
@@ -673,6 +684,8 @@ def _build_calendar_months(releases, today_iso=None):
                 items = by_day.get(day_iso, [])
                 markers = _day_markers(items)
                 week_cells.append({
+                    # Au moins une sortie du jour est déjà dans Jellyfin
+                    "in_jellyfin": any(r.get("in_jellyfin") for r in items),
                     "day_num": day.day,
                     "date_iso": day_iso,
                     "in_month": day.month == m,
