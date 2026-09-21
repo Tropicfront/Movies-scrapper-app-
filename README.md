@@ -266,6 +266,23 @@ curl http://<ton-serveur>:8080/api/affiliate-links/status
 
 ## Intégration Jellyfin
 
+> **Jellyfin 12 et l'authentification.** Depuis la version 12.0, le réglage
+> serveur `EnableLegacyAuthorization` vaut `false` par défaut : l'en-tête
+> `X-Emby-Token`, l'en-tête `X-MediaBrowser-Token` et le paramètre d'URL
+> `?api_key=` renvoient tous 401, même avec une clé valide. Le client
+> utilise donc `Authorization: MediaBrowser Token="<clé>"`, la seule forme
+> encore acceptée — et acceptée aussi par les versions antérieures (10.8+),
+> donc aucune détection de version n'est nécessaire.
+>
+> Pour vérifier d'un coup d'œil :
+> ```bash
+> curl http://<ton-serveur>:8090/api/jellyfin/status
+> ```
+> La réponse indique le nom et la version du serveur, le nombre de films et
+> de séries. Un 401 malgré la mise à jour signifie que la clé elle-même
+> n'est plus valide : regénères-en une dans Tableau de bord > Clés API.
+
+
 Renseigne `JELLYFIN_URL` et `JELLYFIN_API_KEY` (Jellyfin → Tableau de
 bord → Paramètres avancés → Clés API) pour que chaque sortie déjà
 présente dans ta bibliothèque affiche un badge **📀 Déjà dans Jellyfin**

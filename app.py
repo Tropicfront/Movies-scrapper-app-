@@ -34,7 +34,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-13.4"
+APP_BUILD = "2026-09-20.1"
 
 # Quand une même sortie (titre normalisé + date) apparaît sur plusieurs
 # sources, on ne garde que celle de la source la mieux classée ici.
@@ -601,8 +601,20 @@ def jellyfin_status():
     if not jellyfin_client.is_configured():
         return jsonify({"configured": False, "message": "JELLYFIN_URL / JELLYFIN_API_KEY non définis"})
     try:
+        info = jellyfin_client.get_server_info()
         titles = jellyfin_client.fetch_library_titles()
-        return jsonify({"configured": True, "reachable": True, "movies_in_library": len(titles)})
+        counts = getattr(jellyfin_client.fetch_library_titles, "last_counts", {})
+        return jsonify({
+            "configured": True,
+            "reachable": True,
+            "server_name": info.get("server_name"),
+            "server_version": info.get("version"),
+            "movies": counts.get("movies"),
+            "series": counts.get("series"),
+            # Nombre de titres normalisés servant à la comparaison : supérieur
+            # au nombre d'éléments, chaque titre original comptant en plus.
+            "titles_indexed": len(titles),
+        })
     except Exception as exc:
         return jsonify({"configured": True, "reachable": False, "error": str(exc)}), 502
 
