@@ -37,7 +37,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-22.1"
+APP_BUILD = "2026-09-22.2"
 
 # Durée maximale d'un rafraîchissement. Au-delà, ce qui reste à récupérer
 # est repris par un passage de rattrapage programmé peu après, plutôt que
@@ -735,9 +735,10 @@ def jellyfin_status():
             "series": counts.get("series"),
             # Totaux annoncés par le serveur : un écart avec les nombres
             # ci-dessus signale une pagination incomplète.
-            "movies_announced": counts.get("movies_announced"),
-            "series_announced": counts.get("series_announced"),
             "by_type": counts.get("by_type"),
+            "per_library": counts.get("per_library"),
+            "added_by_global_sweep": counts.get("added_by_global_sweep"),
+            "user_id_used": counts.get("user_id_used"),
             "libraries": jellyfin_client.get_libraries(),
             # Nombre de titres normalisés servant à la comparaison : supérieur
             # au nombre d'éléments, chaque titre original comptant en plus.

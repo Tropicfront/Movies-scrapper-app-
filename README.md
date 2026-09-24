@@ -334,20 +334,28 @@ curl http://<ton-serveur>:8080/api/affiliate-links/status
 
 ## Intégration Jellyfin
 
-> **Films manquants à l'appel ?** Jellyfin range sous le type `Video`, et
-> non `Movie`, les films qu'un scan n'a pas réussi à identifier. Ne
-> demander que `Movie` en laissait donc de côté une partie, parfois
-> plusieurs centaines, alors qu'ils apparaissent normalement dans
-> l'interface. Les deux types sont maintenant demandés. Par ailleurs les
-> résultats sont paginés par 500 et comparés au `TotalRecordCount` annoncé
-> par le serveur : tout écart est signalé dans les journaux au lieu de
-> passer inaperçu.
+> **Films manquants à l'appel ?** Deux causes, corrigées ensemble.
 >
-> `GET /api/jellyfin/status` renvoie le détail : nombre de films et de
-> séries reçus, totaux annoncés, répartition par type, et la liste des
-> bibliothèques avec leur type de contenu et leur propre répartition.
-> C'est ce qui permet de repérer un dossier déclaré avec un type
-> inattendu.
+> 1. **Une requête globale ne couvre pas forcément toutes les
+>    bibliothèques.** Quand les films sont répartis dans plusieurs dossiers
+>    (`movies` et `anime`, par exemple), `/Items` interrogé sans
+>    utilisateur peut n'en renvoyer qu'une partie. Le parcours se fait donc
+>    maintenant **bibliothèque par bibliothèque** (`ParentId`), et au nom
+>    d'un utilisateur — le premier administrateur, ou celui imposé par
+>    `JELLYFIN_USER_ID` — exactement comme le fait l'interface web. Une
+>    requête globale reste exécutée en filet, pour rattraper ce qui serait
+>    hors dossier.
+> 2. **Les collections étaient comptées comme des films.** Jellyfin crée
+>    automatiquement des `BoxSet` (« saga X », « trilogie Y ») ; ils
+>    gonflaient le compte et, plus gênant, leurs noms entraient dans la
+>    liste des titres possédés, ce qui pouvait faire passer une sortie pour
+>    déjà possédée alors qu'on ne possède que d'autres films de la même
+>    collection. Ils sont désormais exclus, côté requête et côté filtrage.
+>
+> Les résultats sont paginés par 500, et `GET /api/jellyfin/status` renvoie
+> le détail : films et séries retenus, répartition par type, et le compte
+> **par bibliothèque** — de quoi voir immédiatement quel dossier manque à
+> l'appel.
 
 > **Jellyfin 12 et l'authentification.** Depuis la version 12.0, le réglage
 > serveur `EnableLegacyAuthorization` vaut `false` par défaut : l'en-tête
