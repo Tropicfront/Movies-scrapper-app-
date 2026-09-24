@@ -37,6 +37,32 @@
     display: flex;
     flex-direction: column;
   }
+  /* Dessin générique de disque optique : anneau irisé en rotation */
+  .disc {
+    display: block;
+    width: 54px;
+    height: 54px;
+    margin: 0 auto;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at center, var(--bg) 0 17%, transparent 17.5%),
+      conic-gradient(from 0deg,
+        #4c9be8, #9b59f6, #e05252, #e8b64c, #3ddc97, #4c9be8);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    animation: disc-spin 1.6s linear infinite;
+  }
+  @keyframes disc-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .disc { animation-duration: 6s; } }
+  .loading-block {
+    margin: auto;
+    text-align: center;
+    padding: 20px;
+  }
+  .loading-text {
+    margin: 14px 0 0;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
   .empty {
     color: var(--text-dim);
     font-size: 0.85rem;
@@ -180,14 +206,17 @@
   .day-marker.m-bluray    { background: #4c9be8; }
   .day-marker.m-dvd       { background: #e05252; }
   .day-marker.m-autre     { background: #7b8495; }
-  /* Le coffret est un rond orange comme les formats ; le steelbook garde
-     l'anneau et l'exclusivité Fnac le losange, pour rester lisibles côte
-     à côte. */
+  /* Coffret et steelbook sont des cercles évidés (orange et vert), et
+     l'exclusivité Fnac un losange : des formes distinctes des pastilles
+     pleines des formats, pour qu'on ne les prenne pas pour un support. */
   .day-marker.m-steelbook {
     background: transparent;
     border: 1.5px solid #3ddc97;
   }
-  .day-marker.m-coffret { background: #f0932b; }
+  .day-marker.m-coffret {
+    background: transparent;
+    border: 1.5px solid #f0932b;
+  }
   /* Exclusivité Fnac : losange jaune, une quatrième forme pour rester
      distinguable des ronds (formats), du carré (coffret) et de l'anneau
      (steelbook). */
@@ -358,7 +387,15 @@
 </head>
 <body>
 
-{% if months %}
+{% if loading %}
+  {# Premier démarrage : cache vide, scraping en cours. Le widget se
+     recharge seul jusqu'à ce qu'il y ait des sorties à afficher. #}
+  <div class="loading-block">
+    <span class="disc" aria-hidden="true"></span>
+    <p class="loading-text">Récupération des sorties…</p>
+  </div>
+  <script>setTimeout(function () { location.reload(); }, 10000);</script>
+{% elif months %}
   <div class="cal-header">
     <button class="nav-btn" id="prev-btn" type="button" aria-label="Mois précédent">&lsaquo;</button>
     <span class="month-title" id="month-title"></span>

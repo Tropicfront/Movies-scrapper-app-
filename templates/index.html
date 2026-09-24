@@ -57,7 +57,9 @@
 <header>
   <h1>🎬 Prochaines sorties Blu-ray &amp; 4K Ultra HD</h1>
   {% if updated_at_display %}
-    <p class="subtitle">Dernière mise à jour : <span id="updated-at">{{ updated_at_display }}</span></p>
+    <p class="subtitle">Dernière mise à jour : <span id="updated-at">{{ updated_at_display }}</span>
+      {% if refreshing %}<span class="disc disc-inline" title="Mise à jour en cours"></span>{% endif %}
+    </p>
   {% endif %}
 
   <p class="jellyfin-status">
@@ -79,7 +81,13 @@
   </div>
 
   <div class="howto" id="howto">
-    <p class="howto-intro">📺 Ajouter le calendrier à ton dashboard Homarr, en 4 étapes :</p>
+    <div class="howto-menu">
+      <button type="button" class="howto-tab active" data-panel="tuto">📺 Intégration iFrame</button>
+      <button type="button" class="howto-tab" data-panel="legend">🎨 Légende du calendrier</button>
+    </div>
+
+    <div class="howto-panel active" data-panel="tuto">
+    <p class="howto-intro">Ajouter le calendrier à ton dashboard Homarr, en 4 étapes :</p>
     <div class="howto-steps">
       <article class="howto-step active">
         <span class="howto-num">1</span>
@@ -115,6 +123,28 @@
       <span class="howto-dots"></span>
       <button class="howto-next" type="button" aria-label="Étape suivante">&rsaquo;</button>
     </div>
+    </div>
+
+    <div class="howto-panel" data-panel="legend">
+      <p class="howto-intro">Ce que signifient les pastilles et les contours dans le calendrier :</p>
+      <ul class="legend-list">
+        <li><span class="lg-dot m-4k"></span> Rond violet — 4K Ultra HD</li>
+        <li><span class="lg-dot m-bluray"></span> Rond bleu — Blu-ray</li>
+        <li><span class="lg-dot m-dvd"></span> Rond rouge — DVD</li>
+        <li><span class="lg-dot m-autre"></span> Rond gris — format non reconnu</li>
+        <li><span class="lg-dot m-coffret"></span> Cercle orange — coffret (plusieurs films)</li>
+        <li><span class="lg-dot m-steelbook"></span> Cercle vert — édition steelbook</li>
+        <li><span class="lg-dot m-fnac"></span> Losange jaune — exclusivité Fnac</li>
+      </ul>
+      <p class="howto-intro">Et les cases elles-mêmes :</p>
+      <ul class="legend-list">
+        <li><span class="lg-cell today"></span> Contour doré — aujourd'hui</li>
+        <li><span class="lg-cell owned"></span> Contour vert clair — au moins une sortie déjà dans Jellyfin</li>
+        <li><span class="lg-cell today owned"></span> Dégradé des deux — les deux à la fois</li>
+      </ul>
+      <p class="howto-note">Les pastilles d'un jour résument toutes ses sorties ; le détail
+      s'affiche en cliquant sur la case.</p>
+    </div>
   </div>
 
   {% if errors %}
@@ -125,7 +155,19 @@
 </header>
 
 <main>
-  {% if upcoming %}
+  {% if loading %}
+    {# Premier démarrage : le cache est vide et le scraping tourne encore.
+       La page se recharge seule jusqu'à ce qu'il y ait quelque chose. #}
+    <div class="loading-block">
+      <span class="disc" aria-hidden="true"></span>
+      <p class="loading-title">Récupération des sorties en cours…</p>
+      <p class="loading-note">
+        Le premier passage interroge les deux sites, puis la fiche de chaque
+        titre pour les boutons d'achat et les affiches. Compte quelques
+        minutes. Cette page se met à jour toute seule.
+      </p>
+    </div>
+  {% elif upcoming %}
     <div class="slots-row">
     <section class="today-section slot-card">
       {% if today %}
@@ -254,6 +296,15 @@
     });
   });
 
+  const tabs = Array.from(document.querySelectorAll('.howto-tab'));
+  const panels = Array.from(document.querySelectorAll('.howto-panel'));
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.toggle('active', t === tab));
+      panels.forEach(p => p.classList.toggle('active', p.dataset.panel === tab.dataset.panel));
+    });
+  });
+
   const steps = Array.from(document.querySelectorAll('.howto-step'));
   if (!steps.length) return;
   const dotsBox = document.querySelector('.howto-dots');
@@ -280,6 +331,11 @@
   next.addEventListener('click', () => show(current + 1));
   show(0);
 })();
+
+// --- Premier chargement : on recontrôle régulièrement jusqu'aux données
+{% if loading %}
+setTimeout(() => location.reload(), 10000);
+{% endif %}
 
 // --- Tri et filtrage de la liste complète
 (function () {

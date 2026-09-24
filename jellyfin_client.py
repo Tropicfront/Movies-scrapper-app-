@@ -88,34 +88,75 @@ def get_server_info(timeout=10):
     }
 
 
-def fetch_library_titles(timeout=20):
-    """Récupère l'ensemble des titres (normalisés) des films ET séries de
-    la bibliothèque Jellyfin."""
-    if not is_configured():
-        return set()
+# Taille d'une page de résultats. Jellyfin pagine : demander une limite
+# énorme d'un coup n'est pas fiable, et surtout rien n'indiquait jusqu'ici
+# si la réponse avait été tronquée. On lit maintenant TotalRecordCount et
+# on boucle, ce qui permet aussi de comparer le total annoncé par le
+# serveur au nombre réellement reçu.
+PAGE_SIZE = 500
 
-    url = f"{JELLYFIN_URL}/Items"
-    params = {
-        "IncludeItemTypes": "Movie,Series",
-        "Recursive": "true",
-        "Fields": "OriginalTitle",
-        "Limit": 10000,
-    }
-    resp = requests.get(url, params=params, headers=_auth_headers(), timeout=timeout)
+# Types d'éléments considérés. "Video" couvre les films qu'un scan n'a pas
+# réussi à identifier : Jellyfin les range sous ce type, et non sous
+# "Movie", ce qui les rendait invisibles ici alors qu'ils apparaissent
+# bien dans la bibliothèque côté interface.
+MOVIE_TYPES = ("Movie", "Video")
+SERIES_TYPES = ("Series",)
+
+
+def _get_json(path, params, timeout=20):
+    resp = requests.get(f"{JELLYFIN_URL}{path}", params=params,
+                        headers=_auth_headers(), timeout=timeout)
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
         logger.error("Jellyfin : %s", _explain_http_error(exc, resp))
         raise
-    items = resp.json().get("Items", [])
+    return resp.json()
+
+
+def _fetch_items(item_types, timeout=20):
+    """Récupère tous les éléments d'un ou plusieurs types, page par page.
+    Renvoie (items, total_annoncé_par_le_serveur)."""
+    items = []
+    total = None
+    start_index = 0
+    while True:
+        data = _get_json("/Items", {
+            "IncludeItemTypes": ",".join(item_types),
+            "Recursive": "true",
+            "Fields": "OriginalTitle",
+            "StartIndex": start_index,
+            "Limit": PAGE_SIZE,
+        }, timeout=timeout)
+        page = data.get("Items", [])
+        if total is None:
+            total = data.get("TotalRecordCount")
+        items.extend(page)
+        start_index += len(page)
+        if not page or (total is not None and start_index >= total):
+            break
+        if len(page) < PAGE_SIZE:
+            break
+    return items, total
+
+
+def fetch_library_titles(timeout=20):
+    """Récupère l'ensemble des titres (normalisés) des films ET séries de
+    la bibliothèque Jellyfin.
+
+    Les films et les séries sont demandés séparément : cela permet de
+    comparer, pour chaque type, le total annoncé par le serveur au nombre
+    d'éléments effectivement reçus, et de repérer tout de suite un écart."""
+    if not is_configured():
+        return set()
+
+    movie_items, movie_total = _fetch_items(MOVIE_TYPES, timeout)
+    series_items, series_total = _fetch_items(SERIES_TYPES, timeout)
 
     titles = set()
-    movies = series = 0
-    for item in items:
-        if item.get("Type") == "Series":
-            series += 1
-        else:
-            movies += 1
+    by_type = {}
+    for item in movie_items + series_items:
+        by_type[item.get("Type", "?")] = by_type.get(item.get("Type", "?"), 0) + 1
         for key in ("Name", "OriginalTitle"):
             val = item.get(key)
             if val:
@@ -123,10 +164,59 @@ def fetch_library_titles(timeout=20):
                 if norm:
                     titles.add(norm)
 
-    logger.info("Jellyfin : %d films + %d séries récupérés dans la bibliothèque", movies, series)
-    fetch_library_titles.last_counts = {"movies": movies, "series": series,
-                                        "items": len(items)}
+    logger.info("Jellyfin : %d films + %d séries récupérés (détail par type : %s)",
+                len(movie_items), len(series_items), by_type)
+    for label, received, announced in (("films", len(movie_items), movie_total),
+                                       ("séries", len(series_items), series_total)):
+        if announced is not None and received != announced:
+            logger.warning("Jellyfin : %d %s reçus alors que le serveur en annonce %d",
+                           received, label, announced)
+
+    fetch_library_titles.last_counts = {
+        "movies": len(movie_items),
+        "series": len(series_items),
+        "movies_announced": movie_total,
+        "series_announced": series_total,
+        "by_type": by_type,
+    }
     return titles
+
+
+def get_libraries(timeout=20):
+    """Liste les bibliothèques et, pour chacune, le nombre d'éléments par
+    type. Sert à comprendre un écart de comptage : c'est ce qui révèle
+    qu'un dossier est déclaré avec un type de contenu inattendu, ou que ses
+    éléments ne sont pas identifiés."""
+    if not is_configured():
+        return []
+
+    folders = _get_json("/Items", {
+        "IncludeItemTypes": "CollectionFolder",
+        "Recursive": "false",
+    }, timeout=timeout).get("Items", [])
+
+    libraries = []
+    for folder in folders:
+        detail = _get_json("/Items", {
+            "ParentId": folder.get("Id"),
+            "Recursive": "true",
+            "Limit": 0,
+        }, timeout=timeout)
+        counts = {}
+        page = _get_json("/Items", {
+            "ParentId": folder.get("Id"),
+            "Recursive": "true",
+            "Limit": 2000,
+        }, timeout=timeout).get("Items", [])
+        for item in page:
+            counts[item.get("Type", "?")] = counts.get(item.get("Type", "?"), 0) + 1
+        libraries.append({
+            "name": folder.get("Name"),
+            "collection_type": folder.get("CollectionType"),
+            "total_items": detail.get("TotalRecordCount"),
+            "by_type": dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+        })
+    return libraries
 
 
 def annotate_with_library(releases, library_titles):

@@ -69,6 +69,131 @@ header h1 { margin: 0 0 8px; font-size: 1.8rem; }
 }
 #toggle-jellyfin-btn:hover { border-color: var(--accent-2); color: var(--accent-2); }
 
+/* --- Menu du bloc d'aide : tutoriel / légende ------------------------ */
+.howto-menu {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.howto-tab {
+  background: transparent;
+  border: 1px solid var(--card-border);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.howto-tab:hover { color: var(--text); border-color: var(--accent-2); }
+.howto-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1a1a;
+}
+.howto-panel { display: none; }
+.howto-panel.active { display: block; }
+
+/* --- Légende ---------------------------------------------------------- */
+.legend-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.legend-list li { display: flex; align-items: center; gap: 9px; }
+.lg-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lg-dot.m-4k     { background: #9b59f6; }
+.lg-dot.m-bluray { background: #4c9be8; }
+.lg-dot.m-dvd    { background: #e05252; }
+.lg-dot.m-autre  { background: #7b8495; }
+/* Coffret et steelbook : des cercles évidés, pour ne pas les confondre
+   avec les pastilles pleines des formats */
+.lg-dot.m-coffret   { background: transparent; border: 2px solid #f0932b; }
+.lg-dot.m-steelbook { background: transparent; border: 2px solid #3ddc97; }
+.lg-dot.m-fnac {
+  background: #ffd200;
+  border-radius: 1px;
+  transform: rotate(45deg);
+  width: 8px;
+  height: 8px;
+}
+.lg-cell {
+  width: 22px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1.5px solid transparent;
+  flex-shrink: 0;
+}
+.lg-cell.today { border-color: #e8b64c; background: #2a2410; }
+.lg-cell.owned { border-color: #5bd99a; background: #10291d; }
+.lg-cell.today.owned {
+  border-color: transparent;
+  background-image:
+    linear-gradient(135deg, #2a2410, #10291d),
+    linear-gradient(135deg, #e8b64c, #5bd99a);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
+.howto-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+/* --- Disque de chargement -------------------------------------------- */
+/* Dessin générique de disque optique : un anneau irisé qui tourne, avec
+   un trou central. Rien de plus qu'un dégradé conique en CSS. */
+.disc {
+  display: inline-block;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, var(--bg) 0 17%, transparent 17.5%),
+    conic-gradient(from 0deg,
+      #4c9be8, #9b59f6, #e05252, #e8b64c, #3ddc97, #4c9be8);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  animation: disc-spin 1.6s linear infinite;
+}
+.disc-inline {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-left: 6px;
+}
+@keyframes disc-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .disc { animation-duration: 6s; }
+}
+.loading-block {
+  text-align: center;
+  padding: 60px 20px;
+}
+.loading-title {
+  margin: 18px 0 6px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.loading-note {
+  margin: 0 auto;
+  max-width: 460px;
+  font-size: 0.84rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
 /* --- Tutoriel Homarr : petites pages qui défilent ------------------- */
 .howto {
   max-width: 640px;

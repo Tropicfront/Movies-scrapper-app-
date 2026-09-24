@@ -37,6 +37,10 @@ une comparaison de titres normalisée (accents/mentions de format retirés).
 
 ## Calendrier pour dashboard (Homarr / Homepage)
 
+> La page web embarque un bloc d'aide à deux onglets : le tutoriel
+> d'intégration iFrame pas à pas, et la légende complète des pastilles et
+> des contours du calendrier.
+>
 > Le widget iFrame (`/widget/upcoming`) est la méthode recommandée, et la
 > seule présentée sur la page web. Les flux iCal décrits plus bas restent
 > servis par l'application — utiles pour un agenda de téléphone — mais ils
@@ -131,7 +135,7 @@ Chaque jour porte une **pastille par format** présent ce jour-là :
 | point bleu | Blu-ray |
 | point rouge | DVD |
 | point gris | format non reconnu |
-| carré orange | au moins un **coffret** ce jour-là |
+| cercle orange | au moins un **coffret** ce jour-là |
 | anneau vert | au moins une édition **steelbook** ce jour-là |
 | losange jaune | au moins une **exclusivité Fnac** ce jour-là |
 
@@ -140,9 +144,13 @@ déjà dans la bibliothèque Jellyfin est cerclé de vert clair, et quand les
 deux se cumulent le contour et le fond passent en dégradé de l'un vers
 l'autre.
 
-Le coffret est un rond orange, comme les formats ; le steelbook garde son
-anneau et l'exclusivité Fnac son losange, pour rester distinguables côte à
-côte. « Steelcase » est reconnu comme une graphie
+Coffret et steelbook sont des cercles évidés (orange et vert), et
+l'exclusivité Fnac un losange : des formes distinctes des pastilles pleines
+des formats, pour qu'on ne les prenne pas pour un support de plus.
+
+Au tout premier démarrage, tant que le cache est vide et que le scraping
+tourne, le site comme le widget affichent un disque en rotation et se
+rechargent seuls toutes les dix secondes. « Steelcase » est reconnu comme une graphie
 de « steelbook ». Elle se déclenche sur « steelbook » ou « steel
 book » trouvé dans le titre, le descriptif ou le format, et le badge
 correspondant réapparaît dans la fenêtre du jour pour identifier de quelle
@@ -325,6 +333,21 @@ curl http://<ton-serveur>:8080/api/affiliate-links/status
 ```
 
 ## Intégration Jellyfin
+
+> **Films manquants à l'appel ?** Jellyfin range sous le type `Video`, et
+> non `Movie`, les films qu'un scan n'a pas réussi à identifier. Ne
+> demander que `Movie` en laissait donc de côté une partie, parfois
+> plusieurs centaines, alors qu'ils apparaissent normalement dans
+> l'interface. Les deux types sont maintenant demandés. Par ailleurs les
+> résultats sont paginés par 500 et comparés au `TotalRecordCount` annoncé
+> par le serveur : tout écart est signalé dans les journaux au lieu de
+> passer inaperçu.
+>
+> `GET /api/jellyfin/status` renvoie le détail : nombre de films et de
+> séries reçus, totaux annoncés, répartition par type, et la liste des
+> bibliothèques avec leur type de contenu et leur propre répartition.
+> C'est ce qui permet de repérer un dossier déclaré avec un type
+> inattendu.
 
 > **Jellyfin 12 et l'authentification.** Depuis la version 12.0, le réglage
 > serveur `EnableLegacyAuthorization` vaut `false` par défaut : l'en-tête

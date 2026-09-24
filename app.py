@@ -37,7 +37,7 @@ APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-21.4"
+APP_BUILD = "2026-09-22.1"
 
 # Durée maximale d'un rafraîchissement. Au-delà, ce qui reste à récupérer
 # est repris par un passage de rattrapage programmé peu après, plutôt que
@@ -330,6 +330,14 @@ def get_sorted_releases():
     }
 
 
+def _is_initial_loading(data):
+    """Vrai tant que le tout premier scraping n'a rien donné à afficher :
+    un rafraîchissement tourne et le cache est encore vide. Sert à montrer
+    un indicateur de chargement plutôt qu'une page vide, au démarrage."""
+    empty = not data["dated"] and not data["undated"]
+    return bool(empty and _refresh_state.get("running"))
+
+
 def _filter_releases(releases, only_jellyfin=False, category=None):
     if only_jellyfin:
         releases = [r for r in releases if r.get("in_jellyfin")]
@@ -362,6 +370,8 @@ def index():
         jellyfin_enabled=data["jellyfin_enabled"],
         jellyfin_matched=data["jellyfin_matched"],
         tmdb_enabled=data["tmdb_enabled"],
+        loading=_is_initial_loading(data),
+        refreshing=bool(_refresh_state.get("running")),
         sources=[
             ("4K-Ultra-HD.fr", "https://4k-ultra-hd.fr/prochaines-sorties-blu-ray-4k-ultra-hd"),
             ("Édition-Limitée.fr", "https://edition-limitee.fr/blu-ray-dvd/sortie-blu-ray-dvd/"),
@@ -497,6 +507,7 @@ def widget_upcoming():
         active_index=active_index,
         today_iso=today_iso,
         theme=theme,
+        loading=_is_initial_loading(data),
         # Rejoués tels quels par le fetch du détail d'un jour, pour que la
         # fenêtre applique les mêmes filtres que la grille.
         day_query=urlencode({k: v for k, v in (
@@ -722,6 +733,12 @@ def jellyfin_status():
             "server_version": info.get("version"),
             "movies": counts.get("movies"),
             "series": counts.get("series"),
+            # Totaux annoncés par le serveur : un écart avec les nombres
+            # ci-dessus signale une pagination incomplète.
+            "movies_announced": counts.get("movies_announced"),
+            "series_announced": counts.get("series_announced"),
+            "by_type": counts.get("by_type"),
+            "libraries": jellyfin_client.get_libraries(),
             # Nombre de titres normalisés servant à la comparaison : supérieur
             # au nombre d'éléments, chaque titre original comptant en plus.
             "titles_indexed": len(titles),
