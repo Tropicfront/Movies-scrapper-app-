@@ -43,7 +43,8 @@ logger = logging.getLogger(__name__)
 
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "")
 TMDB_LANGUAGE = os.environ.get("TMDB_LANGUAGE", "fr-FR")
-TMDB_SEARCH_URL = "https://api.themoviedb.org/3/search/multi"
+TMDB_API_BASE = "https://api.themoviedb.org/3"
+TMDB_SEARCH_URL = f"{TMDB_API_BASE}/search/multi"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w342"
 TMDB_SITE_BASE = "https://www.themoviedb.org"
 
@@ -72,12 +73,16 @@ def _clean_query(title):
     return t or title
 
 
-def _query_tmdb(query, language, timeout):
-    """Un appel à /search/multi. Volontairement sans try/except : un échec
-    réseau doit remonter, pour ne pas être confondu avec « TMDB ne connaît
-    pas ce titre » et gravé comme tel dans le cache."""
+def _query_tmdb(query, language, timeout, endpoint="multi"):
+    """Un appel à /search/<endpoint>. Volontairement sans try/except : un
+    échec réseau doit remonter, pour ne pas être confondu avec « TMDB ne
+    connaît pas ce titre » et gravé comme tel dans le cache.
+
+    /search/multi est le point d'entrée par défaut, mais il est plus
+    restrictif que /search/movie et /search/tv, qui trouvent des titres
+    que multi ignore : d'où l'essai des trois."""
     resp = requests.get(
-        TMDB_SEARCH_URL,
+        f"{TMDB_API_BASE}/search/{endpoint}",
         params={
             "api_key": TMDB_API_KEY,
             "query": query,
@@ -87,7 +92,13 @@ def _query_tmdb(query, language, timeout):
         timeout=timeout,
     )
     resp.raise_for_status()
-    return resp.json().get("results", [])
+    results = resp.json().get("results", [])
+    if endpoint in ("movie", "tv"):
+        # Ces deux points d'entrée ne renvoient pas media_type, contrairement
+        # à multi : on le rétablit pour que la suite traite tout pareil.
+        for item in results:
+            item.setdefault("media_type", endpoint)
+    return results
 
 
 def _result_year(result):
@@ -132,18 +143,29 @@ def _pick_best(results, year):
     }
 
 
-def _search_tmdb(title, year=None, timeout=10):
+def _search_tmdb(title, year=None, timeout=10, prefer_series=False):
+    """Cherche une fiche, en élargissant progressivement :
+      1. /search/multi dans la langue configurée ;
+      2. /search/tv ou /search/movie — plus permissifs que multi, et c'est
+         le titre lui-même qui dit lequel essayer en premier ;
+      3. /search/multi sans forcer la langue, pour les catalogues sans
+         fiche ni affiche en français (cinéma asiatique, éditeurs de niche).
+    On s'arrête au premier résultat exploitable."""
     query = _clean_query(title)
     if not query:
         return None
 
-    best = _pick_best(_query_tmdb(query, TMDB_LANGUAGE, timeout), year)
-    if best is None and not TMDB_LANGUAGE.lower().startswith("en"):
-        # Une partie du catalogue (cinéma asiatique, éditeurs de niche)
-        # n'a pas de fiche ni d'affiche en français : plutôt que de
-        # conclure « inconnu », on retente sans forcer la langue.
-        best = _pick_best(_query_tmdb(query, "en-US", timeout), year)
-    return best
+    specific = ("tv", "movie") if prefer_series else ("movie", "tv")
+    attempts = [("multi", TMDB_LANGUAGE)]
+    attempts += [(endpoint, TMDB_LANGUAGE) for endpoint in specific]
+    if not TMDB_LANGUAGE.lower().startswith("en"):
+        attempts.append(("multi", "en-US"))
+
+    for endpoint, language in attempts:
+        best = _pick_best(_query_tmdb(query, language, timeout, endpoint), year)
+        if best:
+            return best
+    return None
 
 
 def _search_candidates(release):
@@ -154,11 +176,14 @@ def _search_candidates(release):
     ne fait pas partie du texte cherché mais sert à trier les résultats."""
     analysis = analyze_title(release.get("title", ""), release.get("details", ""))
     candidates = list(analysis["search_titles"])
+    # L'année relevée sur la fiche du site source est plus fiable que celle
+    # devinée dans le titre : elle prime quand elle existe.
+    year = release.get("year") or analysis["year"]
     raw = (release.get("title") or "").strip()
     if raw and raw not in candidates:
         candidates.append(raw)
     # Plafond : évite de marteler l'API sur un titre très découpé
-    return candidates[:6], analysis["year"]
+    return candidates[:6], year, analysis["is_series"]
 
 
 MAX_CONSECUTIVE_FAILURES = 3
@@ -211,11 +236,11 @@ def enrich_with_posters(releases, cache_file, request_delay=0.25,
             result = None
             tried = []
             failed = None
-            candidates, year = _search_candidates(r)
+            candidates, year, prefer_series = _search_candidates(r)
             for candidate in candidates:
                 tried.append(candidate)
                 try:
-                    result = search_fn(candidate, year=year)
+                    result = search_fn(candidate, year=year, prefer_series=prefer_series)
                 except Exception as exc:  # noqa: BLE001
                     failed = exc
                     break

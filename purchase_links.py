@@ -54,9 +54,11 @@ def enrich_releases(releases, cache_file, source_name, fetch_fn,
                     url_field="url", deadline=None):
     """Complète amazon_url/fnac_url pour les sorties de `source_name`.
 
-    `fetch_fn(url)` doit renvoyer un couple (amazon_url, fnac_url) et LEVER
-    une exception si la page n'a pas pu être chargée — c'est ce qui permet
-    de distinguer « lu, rien trouvé » de « pas lu ».
+    `fetch_fn(url)` doit renvoyer un dict ({"amazon_url", "fnac_url", et
+    éventuellement "year"}) et LEVER une exception si la page n'a pas pu
+    être chargée — c'est ce qui permet de distinguer « lu, rien trouvé » de
+    « pas lu ». Les clés reconnues sont recopiées sur la sortie quand elle
+    ne les porte pas déjà ; « year » sert à identifier la bonne fiche TMDB.
     `deadline` est un instant `time.monotonic()` au-delà duquel on s'arrête.
 
     Renvoie `releases`. Les compteurs du tour sont exposés dans
@@ -90,7 +92,7 @@ def enrich_releases(releases, cache_file, source_name, fetch_fn,
                 continue
 
             try:
-                amazon_url, fnac_url = fetch_fn(url)
+                found = fetch_fn(url)
             except HostUnavailable as exc:
                 stopped_reason = str(exc)
                 pending += 1
@@ -108,19 +110,19 @@ def enrich_releases(releases, cache_file, source_name, fetch_fn,
             consecutive_failures = 0
             looked_up += 1
             entry = {
-                "amazon_url": amazon_url,
-                "fnac_url": fnac_url,
-                "found": bool(amazon_url or fnac_url),
+                "amazon_url": found.get("amazon_url"),
+                "fnac_url": found.get("fnac_url"),
+                "year": found.get("year"),
+                "found": bool(found.get("amazon_url") or found.get("fnac_url")),
                 "checked_at": now.isoformat(),
             }
             cache[url] = entry
             changed = True
 
         if entry:
-            if entry.get("amazon_url") and not r.get("amazon_url"):
-                r["amazon_url"] = entry["amazon_url"]
-            if entry.get("fnac_url") and not r.get("fnac_url"):
-                r["fnac_url"] = entry["fnac_url"]
+            for field in ("amazon_url", "fnac_url", "year"):
+                if entry.get(field) and not r.get(field):
+                    r[field] = entry[field]
 
     if changed:
         save_json_cache(cache_file, cache)

@@ -30,14 +30,14 @@ CACHE_FILE = os.path.join(DATA_DIR, "releases.json")
 POSTER_CACHE_FILE = os.path.join(DATA_DIR, "posters.json")
 AFFILIATE_CACHE_FILE = os.path.join(DATA_DIR, "affiliate_links.json")
 EL_AFFILIATE_CACHE_FILE = os.path.join(DATA_DIR, "affiliate_links_el.json")
-REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "6"))
+REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "12"))
 EL_MONTH_ARTICLES = int(os.environ.get("EDITION_LIMITEE_MONTH_ARTICLES", "3"))
 APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 
 # Marqueur de version du code, renvoyé par /health et /api/debug/calendar et
 # affiché en pied de page : permet de vérifier que le conteneur tourne bien
 # avec les fichiers à jour.
-APP_BUILD = "2026-09-22.2"
+APP_BUILD = "2026-09-22.3"
 
 # Durée maximale d'un rafraîchissement. Au-delà, ce qui reste à récupérer
 # est repris par un passage de rattrapage programmé peu après, plutôt que
@@ -543,7 +543,9 @@ def widget_day(day_iso):
     for r in releases:
         tags = _edition_tags(r)
         r["is_boxset"] = "coffret" in tags
+        r["is_series"] = "serie" in tags
         r["is_steelbook"] = "steelbook" in tags
+        r["is_collector"] = "collector" in tags
         r["is_fnac_exclusive"] = "fnac" in tags
 
     return render_template("widget_day.html", releases=releases)
@@ -575,12 +577,14 @@ _MARKER_LABELS = {
     "dvd": "DVD",
     "autre": "Autre format",
     "coffret": "Coffret",
+    "serie": "Série",
     "steelbook": "Steelbook",
+    "collector": "Édition collector",
     "fnac": "Exclusivité Fnac",
 }
 
 # Étiquettes d'édition, dans leur ordre d'affichage après les formats
-_EDITION_MARKERS = ("coffret", "steelbook", "fnac")
+_EDITION_MARKERS = ("coffret", "serie", "steelbook", "collector", "fnac")
 
 
 def _edition_tags(r):

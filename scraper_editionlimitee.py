@@ -183,7 +183,8 @@ def _fetch_purchase_links_from_film_page(url):
     # chargement ne doit pas être enregistré comme « aucun lien ».
     html = polite_get(url)
     soup = BeautifulSoup(html, "html.parser")
-    return extract_purchase_links(soup)
+    amazon_url, fnac_url = extract_purchase_links(soup)
+    return {"amazon_url": amazon_url, "fnac_url": fnac_url}
 
 
 def enrich_with_affiliate_links(releases, cache_file, deadline=None):

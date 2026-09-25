@@ -33,11 +33,15 @@ VOLUME ["/app/data"]
 ENV DATA_DIR=/app/data \
     REFRESH_HOURS=6 \
     APP_TIMEZONE=Europe/Paris \
-    PORT=5000
+    PORT=8090
 
-EXPOSE 5000
+EXPOSE 8090
 
+# Forme shell pour que $PORT soit réellement interprété : en forme exec,
+# la variable serait passée littéralement.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+    CMD curl -f "http://localhost:${PORT}/health" || exit 1
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "app:app"]
+# Forme shell également : le port d'écoute suit désormais vraiment la
+# variable PORT, qui était documentée mais ignorée (5000 était en dur).
+CMD gunicorn --bind "0.0.0.0:${PORT}" --workers 1 --threads 4 app:app

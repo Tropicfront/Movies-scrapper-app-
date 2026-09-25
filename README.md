@@ -50,8 +50,8 @@ une comparaison de titres normalisée (accents/mentions de format retirés).
 
 Deux flux, un par format :
 ```
-http://<ton-serveur>:8080/calendar-4k.ics       (sorties 4K Ultra HD)
-http://<ton-serveur>:8080/calendar-bluray.ics   (sorties Blu-ray / DVD)
+http://<ton-serveur>:8090/calendar-4k.ics       (sorties 4K Ultra HD)
+http://<ton-serveur>:8090/calendar-bluray.ics   (sorties Blu-ray / DVD)
 ```
 
 **Pour avoir les sorties jour par jour avec une couleur différente par
@@ -66,7 +66,7 @@ différente par sortie).
 
 Un flux fusionné existe aussi si tu ne te préoccupes pas des couleurs :
 ```
-http://<ton-serveur>:8080/calendar.ics
+http://<ton-serveur>:8090/calendar.ics
 ```
 (4K et Blu-ray/DVD mélangés dans un seul flux, chaque titre préfixé d'un
 pictogramme 🟣 4K / 🔵 Blu-ray / 🔴 DVD à défaut de vraie couleur.)
@@ -86,13 +86,13 @@ Deux intégrations sur le **même** widget `calendar` :
       firstDayInWeek: monday
       integrations:
         - type: ical
-          url: http://<ton-serveur>:8080/calendar-4k.ics
+          url: http://<ton-serveur>:8090/calendar-4k.ics
           name: Sorties 4K
           color: purple
           params:
             showName: true
         - type: ical
-          url: http://<ton-serveur>:8080/calendar-bluray.ics
+          url: http://<ton-serveur>:8090/calendar-bluray.ics
           name: Sorties Blu-ray/DVD
           color: blue
           params:
@@ -120,7 +120,7 @@ DVD), avec navigation mois précédent/suivant. Cliquer sur un jour qui a
 des sorties ouvre la liste des titres de ce jour (avec affiche, lien vers
 le site source, boutons Amazon/Fnac) :
 ```
-http://<ton-serveur>:8080/widget/upcoming
+http://<ton-serveur>:8090/widget/upcoming
 ```
 
 La grille reprend l'allure du widget calendrier de Homarr : pas de cadre
@@ -137,6 +137,8 @@ Chaque jour porte une **pastille par format** présent ce jour-là :
 | point gris | format non reconnu |
 | cercle orange | au moins un **coffret** ce jour-là |
 | anneau vert | au moins une édition **steelbook** ce jour-là |
+| barre cyan | au moins une **série** ce jour-là (saisons, intégrale TV) |
+| carré magenta | au moins une **édition collector** ce jour-là |
 | losange jaune | au moins une **exclusivité Fnac** ce jour-là |
 
 Le jour courant est cerclé d'or, un jour dont au moins une sortie figure
@@ -192,7 +194,7 @@ Paramètres optionnels :
 - Calendrier des sorties:
     widget:
       type: iframe
-      src: http://<ton-serveur>:8080/widget/upcoming
+      src: http://<ton-serveur>:8090/widget/upcoming
       classes: h-[32rem] sm:h-[32rem] md:h-[34rem] lg:h-[34rem] xl:h-[34rem]
 ```
 Prévoir une tuile plutôt haute : la fenêtre qui s'ouvre au clic sur un jour
@@ -201,7 +203,7 @@ s'affiche à l'intérieur de l'iFrame, et une tuile trop basse la rendrait
 
 #### Configuration Homarr (widget iFrame natif)
 Ajoute une tuile → **Widgets** → **iFrame**, colle l'URL
-`http://<ton-serveur>:8080/widget/upcoming`, puis ajuste la
+`http://<ton-serveur>:8090/widget/upcoming`, puis ajuste la
 hauteur de la tuile selon le nombre de sorties affichées.
 
 ## Lecture des titres (coffrets et recherche TMDB)
@@ -216,9 +218,22 @@ formulation du titre. `title_parser.py` en tire deux choses.
 - plusieurs titres réunis par `+` — « Rio Bravo + La Prisonnière du désert ».
 
 **Les étiquettes**, inutiles à TMDB mais utiles à l'affichage : format
-(`4K`, `Blu-ray`, `DVD`), `Steelbook` (ou `Steelcase`), `Fnac` — qui
-désigne une édition exclusive à l'enseigne — et coffret. Toutes sont
-retirées du texte envoyé à TMDB.
+(`4K`, `Blu-ray`, `DVD`), `Steelbook` (ou `Steelcase`), `Collector`,
+`Fnac` — qui désigne une édition exclusive à l'enseigne — coffret, et
+`Série`. Toutes sont retirées du texte envoyé à TMDB, ainsi que les autres
+enseignes citées dans les titres (`Leclerc`, `Cultura`, `Carrefour`...),
+qui n'y servent qu'à faire échouer la recherche.
+
+« Série », « saison » et « TV » disent la même chose : le titre concerne
+une série. L'étiquette sert à l'affichage, et oriente la recherche TMDB
+vers `/search/tv` avant `/search/movie`.
+
+**Le coffret** se déduit aussi d'un nombre suivi d'un pluriel — `2 films`,
+`3 saisons`, `8 Steelbooks` : plusieurs objets dans la boîte. Le pluriel
+est exigé, pour ne pas confondre avec `Partie 2` ou `Saison 3`. Une plage
+d'années (`Tora-san 1969-1970`) est également traitée comme un coffret :
+c'est une suite de films sortis sur cette période, et ce n'est pas le
+titre.
 
 **L'année**, quand le titre en porte une (`Scary Movie 2026 4K`,
 `Running Man 1987 4K Steelbook`). Elle est retirée de la requête — TMDB la
@@ -245,6 +260,11 @@ affiche (5 essais au maximum) :
 | `Bleach : Thousand-Year Blood War - Partie 3` | non | Bleach : Thousand-Year Blood War, Bleach |
 | `Star Trek : La série Originale` | non | Star Trek |
 | `Scary Movie 2026 4K` | non | Scary Movie *(année 2026)* |
+| `Supergirl 4K Steelbook Leclerc` | non | Supergirl |
+| `Game of Thrones Coffret 8 Steelbooks 4K` | oui | Game of Thrones |
+| `La Famille Addams L'intégrale de la série TV` | oui | La Famille Addams *(série)* |
+| `Akira Kurosawa en 2 films 4K Collector` | oui | Akira Kurosawa |
+| `Tora-san 1969-1970` | oui | Tora-san |
 | `Obsession 4K Steelcase Fnac` | non | Obsession |
 | `Coffret Monte-Cristo Les Trois Mousquetaires 4k` | oui | le titre entier, puis Monte-Cristo, Les Trois Mousquetaires |
 
@@ -261,10 +281,13 @@ qu'**après** le titre entier, et uniquement pour un titre déjà reconnu
 comme coffret : un `la` ou `le` en minuscules ne déclenche rien, donc
 `Le Bon, la Brute et le Truand` est préservé.
 
-Enfin, si une recherche en français ne donne rien, elle est retentée sans
-forcer la langue : une partie du catalogue (cinéma asiatique, éditeurs de
-niche) n'a ni fiche ni affiche en français, et `Sailor Suit and the Machine
-Gun` ne remontait pour cette seule raison.
+La recherche s'élargit ensuite par paliers, en s'arrêtant au premier
+résultat exploitable : `/search/multi` dans la langue configurée, puis
+`/search/tv` ou `/search/movie` — plus permissifs que multi, qui ignore
+des titres qu'ils trouvent, et c'est l'étiquette « série » qui dit lequel
+essayer en premier — puis `/search/multi` sans forcer la langue, une
+partie du catalogue (cinéma asiatique, éditeurs de niche) n'ayant ni fiche
+ni affiche en français.
 
 Les séparateurs `+` et `/` ne sont pris en compte qu'entourés d'espaces,
 pour ne pas couper « Fast & Furious » ni « Face/Off », et la plage de
@@ -273,8 +296,17 @@ numéros n'est cherchée qu'en fin de titre, pour ne pas se déclencher sur
 
 Le fichier est exécutable pour vérifier une modification :
 ```bash
-python title_parser.py     # 24 cas de test, dont les titres simples à ne pas abîmer
+python title_parser.py     # 33 cas de test, dont les titres simples à ne pas abîmer
 ```
+
+### L'année lue sur la fiche du film
+
+Sur 4k-ultra-hd.fr, la fiche de chaque film indique son année sous la
+rubrique « Le film », ligne « Année: ». Elle est relevée au passage de
+récupération des boutons d'achat — la page est de toute façon chargée — et
+mise en cache avec eux. Cette année-là prime sur celle devinée dans le
+titre pour départager les résultats TMDB : c'est ce qui évite d'afficher
+l'affiche d'un remake ou d'un homonyme.
 
 ## Affiches (TMDB)
 
@@ -329,7 +361,7 @@ retourne, par source, combien de sorties ont un lien Amazon/Fnac détecté
 (quelques exemples de titres qui n'en ont pas, et le nombre de fiches déjà
 visitées par cache), par exemple :
 ```bash
-curl http://<ton-serveur>:8080/api/affiliate-links/status
+curl http://<ton-serveur>:8090/api/affiliate-links/status
 ```
 
 ## Intégration Jellyfin
@@ -395,11 +427,11 @@ depuis les sources :
 services:
   sorties-films:
     image: tropicfront/movies_scrapper:latest
-    container_name: sorties-films
+    container_name: movies_scrapper
     ports:
-      - "8080:5000"
+      - "8090:8090"
     environment:
-      - REFRESH_HOURS=6   # fréquence de rafraîchissement automatique (en heures)
+      - REFRESH_HOURS=12  # fréquence de rafraîchissement automatique (en heures)
       - APP_TIMEZONE=Europe/Paris                # fuseau horaire d'affichage (ex: America/New_York, Europe/Paris)
       - JELLYFIN_URL=http://192.168.1.X:8096   # URL de ton serveur Jellyfin (laisser vide pour désactiver)
       - JELLYFIN_API_KEY=                       # clé API Jellyfin (Tableau de bord > Clés API)
@@ -417,8 +449,8 @@ volumes:
 
 | Variable | Description | Valeur par défaut |
 |---|---|---|
-| `PORT` | Port d'écoute interne de l'application (le `8080` à gauche dans `ports:` est celui accessible depuis l'extérieur) | `5000` |
-| `REFRESH_HOURS` | Fréquence de rafraîchissement automatique (en heures) | `6` |
+| `PORT` | Port d'écoute interne de l'application. Il est désormais réellement pris en compte : le Dockerfile le codait en dur à 5000 et ignorait la variable | `8090` |
+| `REFRESH_HOURS` | Fréquence de rafraîchissement automatique (en heures) | `12` |
 | `APP_TIMEZONE` | Fuseau horaire IANA pour l'heure de dernière mise à jour (ex. `America/New_York`, `Asia/Tokyo`) | `Europe/Paris` |
 | `EDITION_LIMITEE_MONTH_ARTICLES` | Nombre d'articles mensuels scrapés sur edition-limitee.fr | `3` |
 | `JELLYFIN_URL` | URL de ton serveur Jellyfin (vide = désactivé) | *(vide)* |
@@ -505,7 +537,7 @@ tourner ton code, commente `image:`, décommente `build: .` et relance avec
 
 Pour confirmer ce qui tourne réellement :
 ```bash
-curl http://<ton-serveur>:8080/health     # -> {"status":"ok","build":"..."}
+curl http://<ton-serveur>:8090/health     # -> {"status":"ok","build":"..."}
 ```
 Le même marqueur est affiché en pied de page du site.
 

@@ -59,17 +59,35 @@ _FORMAT_RE = re.compile(
 _BOXSET_WORD_RE = re.compile(
     r"\b(coffret|int[ée]grale|collection|compilation|anthologie|saga|"
     r"duologie|trilogie|t[ée]tralogie|quadrilogie|pentalogie|hexalogie|"
-    r"box\s?set|\d+\s*films?)\b",
+    r"box\s?set)\b",
     re.IGNORECASE,
 )
+
+# Un nombre suivi d'un pluriel dit explicitement combien d'objets il y a
+# dans la boîte : « 2 films », « 3 saisons », « 8 Steelbooks ». Le pluriel
+# est exigé, pour ne pas confondre avec « Partie 2 » ou « saison 3 ».
+_BOXSET_COUNT_RE = re.compile(
+    r"\b(\d+)\s*(films|saisons|steel\s*-?\s*books|steel\s*-?\s*cases|"
+    r"blu\s*-?\s*rays|dvds|disques|[ée]pisodes)\b",
+    re.IGNORECASE,
+)
+
+# Une plage d'années (« Tora-san 1969-1970 ») décrit une série de films
+# sortis sur cette période : c'est un coffret, et ce n'est pas le titre.
+_YEAR_RANGE_RE = re.compile(r"\s*\(?((?:19|20)\d\d)\s*[-–—]\s*((?:19|20)\d\d)\)?")
 
 # --- Descriptifs d'édition à retirer : ce qui reste est le vrai titre.
 # C'est ce qui distingue « Star Trek : La série Originale » (descriptif, le
 # titre est « Star Trek ») de « Bleach : Thousand-Year Blood War » (vrai
 # sous-titre, à garder).
 _DESCRIPTOR_RE = re.compile(
-    r"\b(l['’]\s*int[ée]grale(?:\s+de\s+la\s+s[ée]rie)?|int[ée]grale|"
-    r"la\s+s[ée]rie\s+(?:originale|compl[èe]te)|s[ée]rie\s+(?:originale|compl[èe]te)|"
+    r"\b(l['’]\s*int[ée]grale(?:\s+des?\s+\d+\s+\w+)?"
+    r"(?:\s+de\s+la\s+s[ée]rie(?:\s+tv)?)?|int[ée]grale|"
+    r"la\s+s[ée]rie\s+(?:originale|compl[èe]te|d['’]origine|tv)|"
+    r"s[ée]rie\s+(?:originale|compl[èe]te|d['’]origine|tv)|"
+    r"en\s+\d+\s+films?|\d+\s*(?:films|saisons|steel\s*-?\s*books|"
+    r"steel\s*-?\s*cases|blu\s*-?\s*rays|dvds|disques)|"
+    r"des?\s+\d+\s+saisons?|\bs[ée]rie\s+tv\b|\btv\b|"
     r"partie\s+\d+|part\s+\d+|chapitre\s+\d+|"
     r"saisons?\s+\d+(?:\s*(?:[àa]|-|et)\s*\d+)?|"
     r"vol\.?\s*\d+|volume\s+\d+|"
@@ -82,6 +100,27 @@ _DESCRIPTOR_RE = re.compile(
 # Ancrée sur la fin pour ne pas se déclencher sur « Blade Runner 2049 ».
 _RANGE_RE = re.compile(
     r"\s*(\d{1,2})\s*(?:et|[àa]|-|,|\+|&)\s*(\d{1,2})\s*$",
+    re.IGNORECASE,
+)
+
+# --- Enseignes citées dans les titres pour signaler une édition exclusive.
+# Seule la Fnac donne une étiquette (elle est fréquente et identifiable) ;
+# les autres sont simplement retirées de la requête TMDB, où elles ne
+# peuvent que faire échouer la recherche.
+_RETAILER_RE = re.compile(
+    r"\b(leclerc|e\.?\s?leclerc|cultura|carrefour|auchan|micromania|"
+    r"amazon|cdiscount|darty|boulanger|rakuten)\b",
+    re.IGNORECASE,
+)
+
+# --- Édition collector
+_COLLECTOR_RE = re.compile(r"\bcollector\b", re.IGNORECASE)
+
+# --- Séries. « saison », « série » et « TV » désignent la même chose : le
+# titre concerne une série, pas un film. Sert d'étiquette à l'affichage et
+# oriente la recherche TMDB.
+_SERIES_RE = re.compile(
+    r"\b(s[ée]ries?|saisons?|s[ée]rie\s+tv|tv|int[ée]grale\s+de\s+la\s+s[ée]rie)\b",
     re.IGNORECASE,
 )
 
@@ -128,8 +167,14 @@ def _strip_noise(text):
     laisserait traîner un « L' » orphelin."""
     text = _FORMAT_RE.sub(" ", text)
     text = _FNAC_RE.sub(" ", text)
+    text = _RETAILER_RE.sub(" ", text)
+    text = _COLLECTOR_RE.sub(" ", text)
+    text = _YEAR_RANGE_RE.sub(" ", text)
     text = _DESCRIPTOR_RE.sub(" ", text)
+    text = _BOXSET_COUNT_RE.sub(" ", text)
     text = _BOXSET_WORD_RE.sub(" ", text)
+    # « en » resté seul après « en 2 films », « des » après « des 3 saisons »
+    text = re.sub(r"\s+\b(en|des|de|du|d['’])\s*$", " ", text, flags=re.IGNORECASE)
     text = _strip_year(text)[0]
     return _squeeze(text)
 
@@ -192,8 +237,8 @@ def analyze_title(title, details=""):
     """
     raw = (title or "").translate(_DASHES)
     if not raw.strip():
-        return {"is_boxset": False, "is_steelbook": False,
-                "is_fnac_exclusive": False, "year": None,
+        return {"is_boxset": False, "is_series": False, "is_collector": False,
+                "is_steelbook": False, "is_fnac_exclusive": False, "year": None,
                 "search_titles": [], "base_title": "", "tags": []}
 
     haystack = f"{raw} {details or ''}".translate(_DASHES)
@@ -205,6 +250,11 @@ def analyze_title(title, details=""):
     parts = _MULTI_SPLIT_RE.split(without_format)
     is_boxset = bool(
         _BOXSET_WORD_RE.search(haystack)
+        # « 2 films », « 3 saisons », « 8 Steelbooks » : un nombre suivi
+        # d'un pluriel dit combien d'objets contient la boîte.
+        or _BOXSET_COUNT_RE.search(haystack)
+        # « 1969-1970 » : une suite de films sortis sur cette période.
+        or _YEAR_RANGE_RE.search(without_format)
         or _RANGE_RE.search(_squeeze(_DESCRIPTOR_RE.sub(" ", without_format)))
         or len(parts) > 1
     )
@@ -231,6 +281,8 @@ def analyze_title(title, details=""):
         search_titles.append(fallback)
 
     is_steelbook = bool(_STEELBOOK_RE.search(haystack))
+    is_series = bool(_SERIES_RE.search(haystack))
+    is_collector = bool(_COLLECTOR_RE.search(haystack))
     # L'exclusivité Fnac n'est cherchée que dans le TITRE : le descriptif
     # mentionne parfois l'enseigne comme simple point de vente.
     is_fnac = bool(_FNAC_RE.search(raw))
@@ -239,13 +291,19 @@ def analyze_title(title, details=""):
     tags = []
     if is_boxset:
         tags.append("coffret")
+    if is_series:
+        tags.append("serie")
     if is_steelbook:
         tags.append("steelbook")
+    if is_collector:
+        tags.append("collector")
     if is_fnac:
         tags.append("fnac")
 
     return {
         "is_boxset": is_boxset,
+        "is_series": is_series,
+        "is_collector": is_collector,
         "is_steelbook": is_steelbook,
         "is_fnac_exclusive": is_fnac,
         "year": year,
@@ -280,7 +338,9 @@ if __name__ == "__main__":
         ("Freddy – L'intégrale 1 à 7", "", True, None, ["coffret"], ["Freddy"]),
         ("Bleach : Thousand-Year Blood War - Partie 3", "", False, None, [],
          ["Bleach : Thousand-Year Blood War", "Bleach"]),
-        ("Star Trek : La série Originale", "", False, None, [], ["Star Trek"]),
+        # « La série Originale » et « Saison N » disent tous deux qu'il
+        # s'agit d'une série : l'étiquette est attendue.
+        ("Star Trek : La série Originale", "", False, None, ["serie"], ["Star Trek"]),
 
         # --- année dans le titre : retirée de la requête, gardée pour trier
         ("Scary Movie 2026 4K", "", False, 2026, [], ["Scary Movie"]),
@@ -313,8 +373,26 @@ if __name__ == "__main__":
         # « la » et « le » en minuscules ne déclenchent pas de coupure
         ("Le Bon, la Brute et le Truand", "", False, None, [],
          ["Le Bon, la Brute et le Truand"]),
-        ("Blue Exorcist - Saison 4", "", False, None, [], ["Blue Exorcist"]),
+        ("Blue Exorcist - Saison 4", "", False, None, ["serie"], ["Blue Exorcist"]),
         ("Trilogie Le Parrain", "", True, None, ["coffret"], ["Le Parrain"]),
+
+        # --- titres relevés dans les journaux : étiquettes à isoler
+        ("Sailor Suit and the Machine Gun 4K", "", False, None, [],
+         ["Sailor Suit and the Machine Gun"]),
+        ("Nosferatu le fantôme de la nuit 4K Steelbook", "", False, None, ["steelbook"],
+         ["Nosferatu le fantôme de la nuit"]),
+        ("Supergirl 4K Steelbook Leclerc", "", False, None, ["steelbook"], ["Supergirl"]),
+        ("Game of Thrones Coffret 8 Steelbooks 4K", "", True, None,
+         ["coffret", "steelbook"], ["Game of Thrones"]),
+        ("La Famille Addams L’intégrale de la série TV", "", True, None,
+         ["coffret", "serie"], ["La Famille Addams"]),
+        ("Validé – L’Intégrale des 3 saisons", "", True, None, ["coffret", "serie"],
+         ["Validé"]),
+        ("Akira Kurosawa en 2 films 4K Collector", "", True, None,
+         ["coffret", "collector"], ["Akira Kurosawa"]),
+        ("Au-delà du réel – La Série d’origine", "", False, None, ["serie"],
+         ["Au-delà du réel"]),
+        ("Tora-san 1969-1970", "", True, None, ["coffret"], ["Tora-san"]),
     ]
 
     failures = 0

@@ -121,6 +121,16 @@ header h1 { margin: 0 0 8px; font-size: 1.8rem; }
    avec les pastilles pleines des formats */
 .lg-dot.m-coffret   { background: transparent; border: 2px solid #f0932b; }
 .lg-dot.m-steelbook { background: transparent; border: 2px solid #3ddc97; }
+.lg-dot.m-serie {
+  background: #4dd0e1;
+  width: 13px;
+  height: 7px;
+  border-radius: 1px;
+}
+.lg-dot.m-collector {
+  background: #e056a0;
+  border-radius: 1px;
+}
 .lg-dot.m-fnac {
   background: #ffd200;
   border-radius: 1px;
@@ -582,4 +592,6 @@ footer a { color: var(--accent-2); }
 }
 .edition-badge.box   { background: #3d2a10; color: #f8c471; }
 .edition-badge.steel { background: #10352b; color: #6ee7b7; }
+.edition-badge.serie     { background: #0f333a; color: #7fe3ef; }
+.edition-badge.collector { background: #3a1030; color: #f5a3d3; }
 .edition-badge.fnac  { background: #3d3a10; color: #ffe066; }

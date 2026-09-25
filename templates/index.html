@@ -39,6 +39,8 @@
       <div class="badges">
         {{ category_badge(r) }}
         {% if 'coffret' in (r.edition_tags or []) %}<span class="edition-badge box">Coffret</span>{% endif %}
+        {% if 'serie' in (r.edition_tags or []) %}<span class="edition-badge serie">Série</span>{% endif %}
+        {% if 'collector' in (r.edition_tags or []) %}<span class="edition-badge collector">Collector</span>{% endif %}
         {% if 'steelbook' in (r.edition_tags or []) %}<span class="edition-badge steel">Steelbook</span>{% endif %}
         {% if 'fnac' in (r.edition_tags or []) %}<span class="edition-badge fnac">Exclu Fnac</span>{% endif %}
         <span class="source-badge">{{ r.source }}</span>
@@ -133,7 +135,9 @@
         <li><span class="lg-dot m-dvd"></span> Rond rouge — DVD</li>
         <li><span class="lg-dot m-autre"></span> Rond gris — format non reconnu</li>
         <li><span class="lg-dot m-coffret"></span> Cercle orange — coffret (plusieurs films)</li>
+        <li><span class="lg-dot m-serie"></span> Barre cyan — série (saisons, intégrale TV)</li>
         <li><span class="lg-dot m-steelbook"></span> Cercle vert — édition steelbook</li>
+        <li><span class="lg-dot m-collector"></span> Carré magenta — édition collector</li>
         <li><span class="lg-dot m-fnac"></span> Losange jaune — exclusivité Fnac</li>
       </ul>
       <p class="howto-intro">Et les cases elles-mêmes :</p>
@@ -220,6 +224,8 @@
             <option value="4k">4K Ultra HD</option>
             <option value="bluray">Blu-ray / DVD</option>
             <option value="coffret">Coffrets</option>
+            <option value="serie">Séries</option>
+            <option value="collector">Éditions collector</option>
             <option value="steelbook">Steelbooks</option>
             <option value="fnac">Exclusivités Fnac</option>
             <option value="owned">Déjà dans Jellyfin</option>

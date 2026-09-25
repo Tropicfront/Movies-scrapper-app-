@@ -22,6 +22,8 @@
       <div class="ev-badges">
         <span class="badge cat-{{ cat }}">{{ CAT_LABELS.get(cat, 'Autre') }}</span>
         {% if r.is_boxset %}<span class="badge box">Coffret</span>{% endif %}
+        {% if r.is_series %}<span class="badge serie">Série</span>{% endif %}
+        {% if r.is_collector %}<span class="badge collector">Collector</span>{% endif %}
         {% if r.is_steelbook %}<span class="badge steel">Steelbook</span>{% endif %}
         {% if r.is_fnac_exclusive %}<span class="badge fnac">Exclu Fnac</span>{% endif %}
         {% if r.source %}<span class="badge src">{{ r.source }}</span>{% endif %}

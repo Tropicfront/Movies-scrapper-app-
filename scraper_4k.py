@@ -177,17 +177,35 @@ def get_releases(max_pages=6):
     return all_releases
 
 
+# Année du film, affichée dans la fiche sous la rubrique « Le film », à la
+# ligne « Année: ». On la cherche dans le texte de la page plutôt que dans
+# une structure HTML précise, pour ne pas dépendre de la mise en page.
+_FILM_YEAR_RE = re.compile(r"Ann[ée]e\s*:?\s*((?:19|20)\d{2})", re.IGNORECASE)
+
+
 def _fetch_affiliate_links_from_film_page(url, timeout=15):
-    """Va chercher les liens Amazon / Fnac sur la page individuelle du film.
+    """Lit la fiche individuelle du film et en retourne ce qui est utile :
+    les liens d'achat et l'année du film.
+
     Les boutons sont dans un bloc "afi5-logos-row" au moment de l'écriture,
     mais on ne dépend pas de cette classe : on scanne tous les liens de la
-    page et on reconnaît le marchand via le libellé de son logo."""
+    page et on reconnaît le marchand via le libellé de son logo.
+
+    L'année sert à identifier la bonne fiche TMDB : sans elle, un titre
+    courant ou un remake ramène volontiers le mauvais film."""
     # Volontairement sans try/except : l'appelant doit pouvoir distinguer
     # « fiche lue, aucun bouton » de « fiche non lue », pour ne pas graver
     # un résultat négatif en cache sur un simple incident réseau.
     html = polite_get(url, timeout=timeout)
     soup = BeautifulSoup(html, "html.parser")
-    return extract_purchase_links(soup)
+    amazon_url, fnac_url = extract_purchase_links(soup)
+
+    year = None
+    match = _FILM_YEAR_RE.search(soup.get_text(" ", strip=True))
+    if match:
+        year = int(match.group(1))
+
+    return {"amazon_url": amazon_url, "fnac_url": fnac_url, "year": year}
 
 
 def enrich_with_affiliate_links(releases, cache_file, deadline=None):
